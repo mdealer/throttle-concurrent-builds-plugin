@@ -57,11 +57,7 @@ import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.SequenceLock;
 import org.jvnet.hudson.test.TestBuilder;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /** Tests that {@link ThrottleJobProperty} actually works for builds. */
@@ -168,9 +164,10 @@ public class ThrottleJobPropertyFreestyleTest {
         assertEquals(1, queuedItemList.size());
         Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
+
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
         assertEquals(1, agent.toComputer().countBusy());
 
         firstJobSeq.done();
@@ -252,7 +249,7 @@ public class ThrottleJobPropertyFreestyleTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(2).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(TestUtil.TWO_TOTAL_UTILIZATION).toString()));
         assertEquals(1, firstAgent.toComputer().countBusy());
 
         assertEquals(1, secondAgent.toComputer().countBusy());
@@ -380,7 +377,7 @@ public class ThrottleJobPropertyFreestyleTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
         assertEquals(1, agent.toComputer().countBusy());
 
         seq1.done();

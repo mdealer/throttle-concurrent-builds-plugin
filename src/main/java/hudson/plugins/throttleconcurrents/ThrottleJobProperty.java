@@ -15,7 +15,9 @@ import hudson.model.JobPropertyDescriptor;
 import hudson.model.Queue;
 import hudson.model.Run;
 import hudson.model.TaskListener;
+import hudson.util.CaseInsensitiveComparator;
 import hudson.util.CopyOnWriteMap;
+import hudson.util.CopyOnWriteMap.Tree;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import java.io.IOException;
@@ -34,6 +36,7 @@ import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -41,6 +44,7 @@ import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.text.diff.StringsComparator;
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.flow.FlowExecution;
 import org.jenkinsci.plugins.workflow.flow.FlowExecutionOwner;
@@ -171,6 +175,10 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
     public List<String> getCategories() {
         return categories;
     }
+
+    public Map<String, Float> getUtilizations() {
+        return categories.stream().collect(Collectors.toMap(k -> k, k -> 1.0f));
+    }
     
     public Integer getMaxConcurrentPerNode() {
         if (maxConcurrentPerNode == null)
@@ -255,19 +263,30 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * @return a map (possibly empty) from {@link FlowNode#getId} to a list of category names (possibly empty)
      */
     @NonNull
-    static Map<String, List<String>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run) {
-        Map<String, List<String>> categoriesByNode = new HashMap<>();
+    static Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run) {
+        LOGGER.log(Level.INFO, "getCategoriesForRunByFlowNode for run {0}", run.getDisplayName());
+Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
 
         final DescriptorImpl descriptor = fetchDescriptor();
 
         for (ThrottleCategory cat : descriptor.getCategories()) {
-            Map<String,List<String>> runs = descriptor.getThrottledPipelinesForCategory(cat.getCategoryName());
-            List<String> nodeIds = runs.get(run.getExternalizableId());
-            if (nodeIds != null) {
-                for (String nodeId : nodeIds) {
-                    List<String> categories = categoriesByNode.computeIfAbsent(nodeId, k -> new ArrayList<>());
-                    categories.add(cat.getCategoryName());
+            Map<String,Map<String, FlowEntry>> runs = descriptor.getThrottledPipelinesForCategory(cat.getCategoryName());
+            LOGGER.log(Level.INFO, "runs count for category {0}: {1}", new Object[] { cat.getCategoryName(), runs.size() });
+            for (Map.Entry<String, Map<String, FlowEntry>> e : runs.entrySet()) {
+                LOGGER.log(Level.INFO, "{0}: {1}", new Object[] { e.getKey(), e.getValue() });
+            }
+            Map<String, FlowEntry> theRun = runs.get(run.getExternalizableId());
+            if (theRun != null) {
+                Collection<FlowEntry> nodeIds = theRun.values();
+                if (nodeIds != null) {
+                    for (FlowEntry nodeId : nodeIds) {
+                        Map<String, Float> categories = categoriesByNode.computeIfAbsent(nodeId.flowId, k -> new HashMap<>());
+                        categories.put(cat.getCategoryName(), nodeId.amount);
+                    }
                 }
+            } else {
+                LOGGER.log(Level.WARNING, "Error getting flow entries for pipeline run {0} and category {1}",
+                new Object[] {run.getDisplayName(), cat.getCategoryName()});
             }
         }
 
@@ -320,7 +339,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         Map<String,List<FlowNode>> throttledPipelines = new TreeMap<>();
 
         final DescriptorImpl descriptor = fetchDescriptor();
-        for (Map.Entry<String,List<String>> currentPipeline : descriptor.getThrottledPipelinesForCategory(category).entrySet()) {
+        for (Map.Entry<String,Map<String, FlowEntry>> currentPipeline : descriptor.getThrottledPipelinesForCategory(category).entrySet()) {
             Run<?, ?> flowNodeRun = Run.fromExternalizableId(currentPipeline.getKey());
             List<FlowNode> flowNodes = new ArrayList<>();
 
@@ -335,7 +354,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                     if (execution == null) {
                         descriptor.removeAllFromPipelineRunForCategory(currentPipeline.getKey(), category, null);
                     } else {
-                        for (String flowNodeId : currentPipeline.getValue()) {
+                        for (String flowNodeId : currentPipeline.getValue().keySet()) {
                             try {
                                 FlowNode node = execution.getNode(flowNodeId);
                                 if (node != null) {
@@ -377,7 +396,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
 
         private List<ThrottleCategory> categories;
 
-        private Map<String,Map<String,List<String>>> throttledPipelinesByCategory;
+        private Map<String,Map<String,Map<String, FlowEntry>>> throttledPipelinesByCategory;
         
         /** Map from category names, to properties including that category. */
         private transient Map<String,Map<ThrottleJobProperty,Void>> propertiesByCategory 
@@ -540,15 +559,28 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
          * @return the same map entry's value as a copy-on-write tree map with copy-on-write
          *     array lists as values.
          */
-        private static Map<String, List<String>> convertValueToCopyOnWriteDataStructures(
-                Map.Entry<String, Map<String, List<String>>> original) {
+        private static Map<String, Map<String, FlowEntry>> convertValueToCopyOnWriteDataStructures(
+                Map.Entry<String, Map<String, Map<String, FlowEntry>>> original) {
             return original.getValue().entrySet().stream()
                     .collect(
                             Collectors.toMap(
                                     Map.Entry::getKey,
-                                    e -> new CopyOnWriteArrayList<>(e.getValue()),
+                                    e -> convertObjectToMap(e),//new CopyOnWriteMap.Tree<>(e.getValue(), CaseInsensitiveComparator.INSTANCE),
                                     throwingMerger(),
                                     CopyOnWriteMap.Tree::new));
+        }
+
+        @SuppressWarnings("unchecked")
+        private static Map<String, FlowEntry> convertObjectToMap(Map.Entry<String, Map<String, FlowEntry>> e) {
+            if (e.getValue() instanceof List) {
+                return ((List<String>)e.getValue()).stream().collect(Collectors.toMap(s -> s, s -> new FlowEntry(s, e.getKey(), 1.0f), throwingMerger(),
+                CopyOnWriteMap.Tree::new));
+            } else if (e.getValue() instanceof Map) {
+                return ((Map<String, FlowEntry>)e.getValue()).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue, throwingMerger(),
+                CopyOnWriteMap.Tree::new));
+            }
+            throw new IllegalArgumentException("Don't know how to convert categories '" + e.getValue() + "'' to map.");
+            //(Map<String, FlowEntry>)(e.getValue() instanceof List<?> ? (Map<String, FlowEntry>)((List<String>)e.getValue()).stream().collect(Collectors.toMap(s -> s, s -> new FlowEntry(s, e.getKey(), 1.0f))) : (Map<String, FlowEntry>)e.getValue()).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue, throwingMerger(), CopyOnWriteMap.Tree::new))
         }
 
         /**
@@ -573,12 +605,12 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         }
 
         @NonNull
-        public synchronized Map<String,List<String>> getThrottledPipelinesForCategory(@NonNull String category) {
+        public synchronized Map<String,Map<String, FlowEntry>> getThrottledPipelinesForCategory(@NonNull String category) {
             return internalGetThrottledPipelinesForCategory(category);
         }
 
         @NonNull
-        private Map<String,List<String>> internalGetThrottledPipelinesForCategory(@NonNull String category) {
+        private Map<String,Map<String, FlowEntry>> internalGetThrottledPipelinesForCategory(@NonNull String category) {
             if (getCategoryByName(category) != null) {
                 if (throttledPipelinesByCategory.containsKey(category)) {
                     return throttledPipelinesByCategory.get(category);
@@ -587,24 +619,22 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
             return new CopyOnWriteMap.Tree<>();
         }
 
-        public synchronized void addThrottledPipelineForCategory(@NonNull String runId,
-                                                                 @NonNull String flowNodeId,
-                                                                 @NonNull String category,
-                                                                 TaskListener listener) {
-            if (getCategoryByName(category) == null) {
+        public synchronized void addThrottledPipelineForCategory(@NonNull String runId, @NonNull FlowEntry fe, TaskListener listener) {
+            LOGGER.log(Level.INFO, "addThrottledPipelineForCategory {0}, {1}", new Object[] { runId, fe });
+            if (getCategoryByName(fe.category) == null) {
                 if (listener != null) {
-                    listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(category));
+                    listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(fe.category));
                 }
             } else {
-                Map<String,List<String>> currentPipelines = internalGetThrottledPipelinesForCategory(category);
+                Map<String,Map<String, FlowEntry>> currentPipelines = internalGetThrottledPipelinesForCategory(fe.category);
 
-                List<String> flowNodes = currentPipelines.get(runId);
+                Map<String, FlowEntry> flowNodes = currentPipelines.get(runId);
                 if (flowNodes == null) {
-                    flowNodes = new CopyOnWriteArrayList<>();
+                    flowNodes = new CopyOnWriteMap.Tree<>();
                 }
-                flowNodes.add(flowNodeId);
+                flowNodes.put(fe.flowId, fe);
                 currentPipelines.put(runId, flowNodes);
-                throttledPipelinesByCategory.put(category, currentPipelines);
+                throttledPipelinesByCategory.put(fe.category, currentPipelines);
             }
         }
 
@@ -617,10 +647,10 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                     listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(category));
                 }
             } else {
-                Map<String,List<String>> currentPipelines = internalGetThrottledPipelinesForCategory(category);
+                Map<String,Map<String, FlowEntry>> currentPipelines = internalGetThrottledPipelinesForCategory(category);
 
                 if (!currentPipelines.isEmpty()) {
-                    List<String> flowNodes = currentPipelines.get(runId);
+                    Map<String, FlowEntry> flowNodes = currentPipelines.get(runId);
                     if (flowNodes != null) {
                         flowNodes.remove(flowNodeId);
                     }
@@ -647,7 +677,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                     listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(category));
                 }
             } else {
-                Map<String,List<String>> currentPipelines = internalGetThrottledPipelinesForCategory(category);
+                Map<String,Map<String, FlowEntry>> currentPipelines = internalGetThrottledPipelinesForCategory(category);
 
                 if (!currentPipelines.isEmpty()) {
                     currentPipelines.remove(runId);
@@ -749,4 +779,5 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
             }
         }
     }
+    private static final Logger LOGGER = Logger.getLogger(ThrottleJobProperty.class.getName());
 }

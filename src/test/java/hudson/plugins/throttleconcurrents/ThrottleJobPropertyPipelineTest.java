@@ -26,11 +26,7 @@ import org.jvnet.hudson.test.BuildWatcher;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class ThrottleJobPropertyPipelineTest {
@@ -51,7 +47,7 @@ public class ThrottleJobPropertyPipelineTest {
         agents = new ArrayList<>();
     }
 
-    @Ignore("TODO Doesn't work at present")
+    //@Ignore("TODO Doesn't work at present")
     @Test
     public void onePerNode() throws Exception {
         Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, "on-agent");
@@ -91,19 +87,20 @@ public class ThrottleJobPropertyPipelineTest {
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
 
-        List<Queue.Item> queuedItemList =
-                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        List<Queue.Item> queuedItemList = Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
         assertEquals(1, queuedItemList.size());
         Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
         assertEquals(1, agent.toComputer().countBusy());
         TestUtil.hasPlaceholderTaskForRun(agent, firstJobFirstRun);
+        assertEquals(1, agent.toComputer().countBusy());
 
         SemaphoreStep.success("wait-first-job/1", null);
         j.assertBuildStatusSuccess(j.waitForCompletion(firstJobFirstRun));
+
         SemaphoreStep.waitForStart("wait-second-job/1", secondJobFirstRun);
         j.jenkins.getQueue().maintain();
         assertTrue(j.jenkins.getQueue().isEmpty());
@@ -174,7 +171,7 @@ public class ThrottleJobPropertyPipelineTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(2).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(TestUtil.TWO_TOTAL_UTILIZATION).toString()));
         assertEquals(1, firstAgent.toComputer().countBusy());
         TestUtil.hasPlaceholderTaskForRun(firstAgent, firstJobFirstRun);
 
@@ -259,7 +256,7 @@ public class ThrottleJobPropertyPipelineTest {
     }
 
     private static String getThrottleScript(String jobName, String label) {
-        return "echo 'hi there'\n"
+        return "echo 'hi there, " + jobName + "'\n"
                 + "node('"
                 + label
                 + "') {\n"

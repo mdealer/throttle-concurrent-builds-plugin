@@ -3,11 +3,16 @@ package hudson.plugins.throttleconcurrents.pipeline;
 import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.plugins.throttleconcurrents.ThrottleJobProperty;
+import hudson.plugins.throttleconcurrents.FlowEntry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.apache.commons.lang.StringUtils;
@@ -27,6 +32,10 @@ public class ThrottleStepExecution extends StepExecution {
     @NonNull
     public List<String> getCategories() {
         return Collections.unmodifiableList(step.getCategories());
+    }
+    @NonNull
+    public Map<String, Float> getUtilizations() {
+        return Collections.unmodifiableMap(step.getUtilizations());
     }
 
     private List<String> validateCategories(ThrottleJobProperty.DescriptorImpl descriptor, TaskListener listener) {
@@ -75,13 +84,14 @@ public class ThrottleStepExecution extends StepExecution {
         if (r != null && flowNode != null) {
             runId = r.getExternalizableId();
             flowNodeId = flowNode.getId();
+            LOGGER.log(Level.INFO, "ThrottleStepExecution.start");
             for (String category : validateCategories(descriptor, listener)) {
-                descriptor.addThrottledPipelineForCategory(runId, flowNodeId, category, listener);
+                descriptor.addThrottledPipelineForCategory(runId, new FlowEntry(flowNodeId, category, 1.0f), listener);
             }
         }
 
         getContext().newBodyInvoker()
-                .withCallback(new Callback(runId, flowNodeId, getCategories()))
+                .withCallback(new Callback(runId, flowNodeId, getUtilizations()))
                 .start();
         return false;
     }
@@ -96,20 +106,20 @@ public class ThrottleStepExecution extends StepExecution {
         private String runId;
         @CheckForNull
         private String flowNodeId;
-        private List<String> categories = new ArrayList<>();
+        private Map<String, Float> categories = new HashMap<>();
 
 
         private static final long serialVersionUID = 1;
 
-        Callback(@CheckForNull String runId, @CheckForNull String flowNodeId, @NonNull List<String> categories) {
+        Callback(@CheckForNull String runId, @CheckForNull String flowNodeId, @NonNull Map<String, Float> categories) {
             this.runId = runId;
             this.flowNodeId = flowNodeId;
-            this.categories.addAll(categories);
+            this.categories.putAll(categories);
         }
 
         @Override protected void finished(StepContext context) throws Exception {
             if (runId != null && flowNodeId != null) {
-                for (String category : categories) {
+                for (String category : categories.keySet()) {
                     ThrottleJobProperty.fetchDescriptor().removeThrottledPipelineForCategory(runId,
                             flowNodeId,
                             category,
@@ -118,4 +128,5 @@ public class ThrottleStepExecution extends StepExecution {
             }
         }
     }
+    private static final Logger LOGGER = Logger.getLogger(ThrottleStepExecution.class.getName());
 }

@@ -19,10 +19,7 @@ import org.jenkinsci.plugins.workflow.support.steps.ExecutorStepExecution;
 import org.junit.rules.TemporaryFolder;
 import org.jvnet.hudson.test.JenkinsRule;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class TestUtil {
 
@@ -30,7 +27,16 @@ public class TestUtil {
     static final String THROTTLE_OPTION_CATEGORY = "category";
     static final String THROTTLE_OPTION_PROJECT = "project";
 
-    static final ThrottleJobProperty.ThrottleCategory ONE_PER_NODE =
+    static final Map<String, Float> TWO_TOTAL_UTILIZATION = new HashMap<String, Float>() {{
+        put("two_total", 2.0f);
+    }};
+    static final Map<String, Float> ONE_PER_NODE_UTILIZATION = new HashMap<String, Float>() {{
+        put("one_per_node", 1.0f);
+    }};
+
+    //static final ThrottleJobProperty.ThrottleCategory HALF_PER_NODE =
+    //        new ThrottleJobProperty.ThrottleCategory("half_per_node", 0.4f, 0, null);
+            static final ThrottleJobProperty.ThrottleCategory ONE_PER_NODE =
             new ThrottleJobProperty.ThrottleCategory("one_per_node", 1, 0, null);
     static final ThrottleJobProperty.ThrottleCategory TWO_TOTAL =
             new ThrottleJobProperty.ThrottleCategory("two_total", 0, 2, null);
