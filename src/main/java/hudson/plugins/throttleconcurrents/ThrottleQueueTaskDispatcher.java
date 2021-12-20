@@ -136,6 +136,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                         } else {
                             LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at node " + node.getDisplayName());
                         }
+                        LOGGER.log(Level.INFO, task.getDisplayName() + (allNodes ? ": max concurrent over all nodes is " : ": max concurrent per node is ") + maxConcurrent);
                         for (Task catTask : categoryTasks) {
                             if (catTask.equals(task.getOwnerTask())) {
                             //if (!catTask.getSubTasks().isEmpty()) {
@@ -169,8 +170,6 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                         if (evaluateBlockage(task, runCount, maxConcurrent, categories)) {
                             return CauseOfBlockage.fromMessage(allNodes ? Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(runCount) : Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(runCount));
                         }
-                    } else {
-                        LOGGER.log(Level.INFO, task.getDisplayName() + (allNodes ? ": max concurrent over all nodes is 0" : ": max concurrent per node is 0"));
                     }
                 } else {
                     LOGGER.log(Level.INFO, task.getDisplayName() + ": category is null");
@@ -180,14 +179,16 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         return null;
     }
 
+    private int roundToPrecision(float f) {
+        return Math.round(f * 1000) / 1000;
+    }
+
     private boolean evaluateBlockage(Task pendingTask, Map<String, Float> runCount, int limit, Map<String, Float> categories) {
         LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": run counts:");
         for (Map.Entry<String, Float> e : runCount.entrySet()) {
             LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": " + e.getKey() + ": " + e.getValue());
         }
-        // This would mean that there are as many or more builds currently running than are allowed.
-
-        if (runCount != null && runCount.entrySet().stream().anyMatch(v -> Math.round((v.getValue() + categories.getOrDefault(v.getKey(), 0.0f)) * 1000) / 1000 > limit)) {
+        if (runCount != null && runCount.entrySet().stream().anyMatch(v -> roundToPrecision(v.getValue() + categories.getOrDefault(v.getKey(), 0.0f)) > limit)) {
             LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": max capacity reached");
             return true;
         } else {

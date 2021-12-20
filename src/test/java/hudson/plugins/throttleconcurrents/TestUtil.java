@@ -33,10 +33,21 @@ public class TestUtil {
     static final Map<String, Float> ONE_PER_NODE_UTILIZATION = new HashMap<String, Float>() {{
         put("one_per_node", 1.0f);
     }};
+    static final Map<String, Float> ONE_PER_NODE_HALF_UTILIZATION = new HashMap<String, Float>() {{
+        put("one_per_node", 0.5f);
+    }};
+    static final Map<String, Float> HALF_PER_NODE_UTILIZATION = new HashMap<String, Float>() {{
+        put("half_per_node", 0.5f);
+    }};
 
-    //static final ThrottleJobProperty.ThrottleCategory HALF_PER_NODE =
-    //        new ThrottleJobProperty.ThrottleCategory("half_per_node", 0.4f, 0, null);
-            static final ThrottleJobProperty.ThrottleCategory ONE_PER_NODE =
+    static final Map<String, Float> MULTIPLE_PER_NODE_UTILIZATION = new HashMap<String, Float>() {{
+        put("multiple_per_node", 50f);
+    }};
+    static final ThrottleJobProperty.ThrottleCategory HALF_PER_NODE =
+            new ThrottleJobProperty.ThrottleCategory("half_per_node", 1, 0, null);
+    static final ThrottleJobProperty.ThrottleCategory MULTIPLE_PER_NODE =
+            new ThrottleJobProperty.ThrottleCategory("multiple_per_node", 50, 0, null);
+    static final ThrottleJobProperty.ThrottleCategory ONE_PER_NODE =
             new ThrottleJobProperty.ThrottleCategory("one_per_node", 1, 0, null);
     static final ThrottleJobProperty.ThrottleCategory TWO_TOTAL =
             new ThrottleJobProperty.ThrottleCategory("two_total", 0, 2, null);

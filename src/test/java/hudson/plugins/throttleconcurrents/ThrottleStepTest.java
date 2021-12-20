@@ -102,22 +102,22 @@ public class ThrottleStepTest {
         SemaphoreStep.success("wait-second-job/1", null);
         j.assertBuildStatusSuccess(j.waitForCompletion(secondJobFirstRun));
     }
-/*
+
     @Test
-    public void halfPerNode() throws Exception {
+    public void multiplePerNode() throws Exception {
         Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, "on-agent");
-        TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
+        TestUtil.setupCategories(TestUtil.MULTIPLE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
         firstJob.setDefinition(
-                getJobFlow("first", TestUtil.ONE_PER_NODE.getCategoryName(), agent.getNodeName()));
+                getJobFlow("first", TestUtil.MULTIPLE_PER_NODE_UTILIZATION, agent.getNodeName()));
 
         WorkflowRun firstJobFirstRun = firstJob.scheduleBuild2(0).waitForStart();
         SemaphoreStep.waitForStart("wait-first-job/1", firstJobFirstRun);
 
         WorkflowJob secondJob = j.createProject(WorkflowJob.class);
         secondJob.setDefinition(
-                getJobFlow("second", TestUtil.ONE_PER_NODE.getCategoryName(), agent.getNodeName()));
+                getJobFlow("second", TestUtil.MULTIPLE_PER_NODE_UTILIZATION, agent.getNodeName()));
 
         WorkflowRun secondJobFirstRun = secondJob.scheduleBuild2(0).waitForStart();
         j.waitForMessage("Still waiting to schedule task", secondJobFirstRun);
@@ -130,7 +130,7 @@ public class ThrottleStepTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.MULTIPLE_PER_NODE_UTILIZATION).toString()));
         assertEquals(1, agent.toComputer().countBusy());
         TestUtil.hasPlaceholderTaskForRun(agent, firstJobFirstRun);
 
@@ -144,7 +144,7 @@ public class ThrottleStepTest {
         SemaphoreStep.success("wait-second-job/1", null);
         j.assertBuildStatusSuccess(j.waitForCompletion(secondJobFirstRun));
     }
-*/
+
     @Test
     public void duplicateCategories() throws Exception {
         Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
@@ -164,12 +164,8 @@ public class ThrottleStepTest {
         WorkflowRun b = job.scheduleBuild2(0).waitForStart();
 
         j.assertBuildStatusSuccess(j.waitForCompletion(b));
-
-        j.assertLogContains(
-                "One or more duplicate categories ("
-                        + TestUtil.ONE_PER_NODE.getCategoryName()
-                        + ") specified. Duplicates will be ignored.",
-                b);
+        // Duplicates are not an error in the current implementation - they will be 'ignored'.
+        // If you need to specify multiples of a throttle category, just specify a map: ['category': N].
         j.assertLogContains("Hello", b);
     }
 
@@ -477,6 +473,51 @@ public class ThrottleStepTest {
     }
 
     @Test
+    public void twoPerNode() throws Exception {
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
+        TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
+
+        WorkflowJob firstJob = j.createProject(WorkflowJob.class);
+        firstJob.setDefinition(
+                getJobFlow(
+                        "first", TestUtil.ONE_PER_NODE_HALF_UTILIZATION, firstAgent.getNodeName()));
+
+        WorkflowRun firstJobFirstRun = firstJob.scheduleBuild2(0).waitForStart();
+        SemaphoreStep.waitForStart("wait-first-job/1", firstJobFirstRun);
+
+        WorkflowJob secondJob = j.createProject(WorkflowJob.class);
+        secondJob.setDefinition(
+                getJobFlow(
+                        "second", TestUtil.ONE_PER_NODE_HALF_UTILIZATION, secondAgent.getNodeName()));
+
+        WorkflowRun secondJobFirstRun = secondJob.scheduleBuild2(0).waitForStart();
+        SemaphoreStep.waitForStart("wait-second-job/1", secondJobFirstRun);
+
+        WorkflowJob thirdJob = j.createProject(WorkflowJob.class);
+        thirdJob.setDefinition(
+                getJobFlow("third", TestUtil.ONE_PER_NODE_HALF_UTILIZATION, "on-agent"));
+
+        WorkflowRun thirdJobFirstRun = thirdJob.scheduleBuild2(0).waitForStart();
+        SemaphoreStep.waitForStart("wait-third-job/1", secondJobFirstRun);
+
+        j.jenkins.getQueue().maintain();
+        assertTrue(j.jenkins.getQueue().isEmpty());
+        int firstBusy = firstAgent.toComputer().countBusy();
+        int secondBusy = secondAgent.toComputer().countBusy();
+        assertEquals(3, firstBusy + secondBusy);
+
+        SemaphoreStep.success("wait-first-job/1", null);
+        j.assertBuildStatusSuccess(j.waitForCompletion(firstJobFirstRun));
+
+        SemaphoreStep.success("wait-second-job/1", null);
+        j.assertBuildStatusSuccess(j.waitForCompletion(secondJobFirstRun));
+
+        SemaphoreStep.success("wait-third-job/1", null);
+        j.assertBuildStatusSuccess(j.waitForCompletion(thirdJobFirstRun));
+    }
+
+    @Test
     public void interopWithFreestyle() throws Exception {
         final Semaphore semaphore = new Semaphore(1);
 
@@ -571,6 +612,10 @@ public class ThrottleStepTest {
         return new CpsFlowDefinition(getThrottleScript(jobName, categories, label), true);
     }
 
+    private CpsFlowDefinition getJobFlow(String jobName, Map<String, Float> categories, String label) {
+        return new CpsFlowDefinition(getThrottleScript(jobName, categories, label), true);
+    }
+
     private String getThrottleScript(String jobName, String category, String label) {
         return getThrottleScript(jobName, Collections.singletonList(category), label);
     }
@@ -579,6 +624,25 @@ public class ThrottleStepTest {
         return getThrottleScript2(jobName, Collections.singletonList(category), label);
     }
 
+    private String getThrottleScript(String jobName, Map<String, Float> categories, String label) {
+        List<String> quoted = new ArrayList<>();
+        for (Map.Entry<String, Float> c : categories.entrySet()) {
+            quoted.add("'" + c.getKey() + "': " + c.getValue() + "");
+        }
+
+        return "throttle(["
+                + StringUtils.join(quoted, ", ")
+                + "]) {\n"
+                + "  echo 'hi there'\n"
+                + "  node('"
+                + label
+                + "') {\n"
+                + "    semaphore 'wait-"
+                + jobName
+                + "-job'\n"
+                + "  }\n"
+                + "}\n";
+    }
     private String getThrottleScript(String jobName, List<String> categories, String label) {
         List<String> quoted = new ArrayList<>();
         for (String c : categories) {

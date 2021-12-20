@@ -524,4 +524,7 @@ public class ThrottleJobPropertyTest {
     private int anyInt() {
         return random.nextInt(10000);
     }
+    private float anyFloat() {
+        return random.nextInt(10000);
+    }
 }

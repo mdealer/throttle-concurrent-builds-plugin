@@ -4,13 +4,7 @@ import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.plugins.throttleconcurrents.ThrottleJobProperty;
 import hudson.plugins.throttleconcurrents.FlowEntry;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import edu.umd.cs.findbugs.annotations.CheckForNull;
@@ -38,38 +32,6 @@ public class ThrottleStepExecution extends StepExecution {
         return Collections.unmodifiableMap(step.getUtilizations());
     }
 
-    private List<String> validateCategories(ThrottleJobProperty.DescriptorImpl descriptor, TaskListener listener) {
-        List<String> undefinedCategories = new ArrayList<>();
-        Set<String> duplicates = new HashSet<>();
-        List<String> unique = new ArrayList<>();
-
-        if (descriptor.getCategories().isEmpty()) {
-            undefinedCategories.addAll(getCategories());
-        } else {
-            for (String c : getCategories()) {
-                if (!unique.contains(c)) {
-                    unique.add(c);
-                } else {
-                    duplicates.add(c);
-                }
-                if (descriptor.getCategoryByName(c) == null) {
-                    undefinedCategories.add(c);
-                }
-            }
-        }
-
-        if (!duplicates.isEmpty()) {
-            listener.getLogger().println("One or more duplicate categories (" + StringUtils.join(duplicates, ", ")
-            + ") specified. Duplicates will be ignored.");
-        }
-
-        if (!undefinedCategories.isEmpty()) {
-            throw new IllegalArgumentException("One or more specified categories do not exist: " + StringUtils.join(undefinedCategories, ", "));
-        }
-
-        return unique;
-    }
-
     @Override
     public boolean start() throws Exception {
         Run<?, ?> r = getContext().get(Run.class);
@@ -85,8 +47,18 @@ public class ThrottleStepExecution extends StepExecution {
             runId = r.getExternalizableId();
             flowNodeId = flowNode.getId();
             LOGGER.log(Level.INFO, "ThrottleStepExecution.start");
-            for (String category : validateCategories(descriptor, listener)) {
-                descriptor.addThrottledPipelineForCategory(runId, new FlowEntry(flowNodeId, category, 1.0f), listener);
+            List<String> nonexistent = new ArrayList<String>();
+            for (String key : getUtilizations().keySet()) {
+                if (descriptor.getCategoryByName(key) == null) {
+                    nonexistent.add(key);
+                }
+            }
+            if (nonexistent.isEmpty()) {
+                for (Map.Entry<String, Float> kv : getUtilizations().entrySet()) {
+                    descriptor.addThrottledPipelineForCategory(runId, new FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
+                }
+            } else {
+                throw new IllegalArgumentException("One or more specified categories do not exist: " + StringUtils.join(nonexistent, ", "));
             }
         }
 

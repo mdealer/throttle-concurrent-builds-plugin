@@ -15,29 +15,22 @@ import hudson.model.JobPropertyDescriptor;
 import hudson.model.Queue;
 import hudson.model.Run;
 import hudson.model.TaskListener;
-import hudson.util.CaseInsensitiveComparator;
 import hudson.util.CopyOnWriteMap;
 import hudson.util.CopyOnWriteMap.Tree;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.WeakHashMap;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.Comparator;
 import java.util.stream.Collectors;
+
+import javax.lang.model.type.UnionType;
+
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import jenkins.model.Jenkins;
@@ -86,7 +79,37 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * functionality upgrades.
      */
     private Long configVersion;
+
+    /**
+     * Returns a merge function, suitable for use in {@link Map#merge(Object, Object,
+     * BiFunction) Map.merge()} or {@link Collectors#toMap(Function, Function, BinaryOperator)
+     * toMap()}, which always throws {@code IllegalStateException}. This can be used to enforce
+     * the assumption that the elements being collected are distinct.
+     *
+     * @param <T> the type of input arguments to the merge function
+     * @return a merge function which always throw {@code IllegalStateException}
+     */
+    private static <T> BinaryOperator<T> throwingMerger() {
+        return (u, v) -> {
+            throw new IllegalStateException(String.format("Duplicate key %s", u));
+        };
+    }
     
+    @SuppressWarnings("unchecked")
+    protected static Map<String, Float> convertCategoryObjectToMap(Object e) {
+        if (e == null) {
+            e = new HashMap<String, Float>();
+        }
+        if (e instanceof List) {
+            return ((List<String>)e).stream().collect(Collectors.toMap(s -> s, s -> 1.0f, throwingMerger(),
+            CopyOnWriteMap.Tree::new));
+        } else if (e instanceof Map) {
+            return ((Map<String, Float>)e).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue, throwingMerger(),
+            CopyOnWriteMap.Tree::new));
+        }
+        throw new IllegalArgumentException("Don't know how to convert '" + e + "'' to category map.");
+    }
+
     @DataBoundConstructor
     public ThrottleJobProperty(Integer maxConcurrentPerNode,
                                Integer maxConcurrentTotal,
@@ -265,7 +288,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
     @NonNull
     static Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run) {
         LOGGER.log(Level.INFO, "getCategoriesForRunByFlowNode for run {0}", run.getDisplayName());
-Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
+        Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
 
         final DescriptorImpl descriptor = fetchDescriptor();
 
@@ -565,13 +588,13 @@ Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
                     .collect(
                             Collectors.toMap(
                                     Map.Entry::getKey,
-                                    e -> convertObjectToMap(e),//new CopyOnWriteMap.Tree<>(e.getValue(), CaseInsensitiveComparator.INSTANCE),
+                                    e -> convertFlowObjectToMap(e),//new CopyOnWriteMap.Tree<>(e.getValue(), CaseInsensitiveComparator.INSTANCE),
                                     throwingMerger(),
                                     CopyOnWriteMap.Tree::new));
         }
 
         @SuppressWarnings("unchecked")
-        private static Map<String, FlowEntry> convertObjectToMap(Map.Entry<String, Map<String, FlowEntry>> e) {
+        private static Map<String, FlowEntry> convertFlowObjectToMap(Map.Entry<String, Map<String, FlowEntry>> e) {
             if (e.getValue() instanceof List) {
                 return ((List<String>)e.getValue()).stream().collect(Collectors.toMap(s -> s, s -> new FlowEntry(s, e.getKey(), 1.0f), throwingMerger(),
                 CopyOnWriteMap.Tree::new));
@@ -579,23 +602,7 @@ Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
                 return ((Map<String, FlowEntry>)e.getValue()).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue, throwingMerger(),
                 CopyOnWriteMap.Tree::new));
             }
-            throw new IllegalArgumentException("Don't know how to convert categories '" + e.getValue() + "'' to map.");
-            //(Map<String, FlowEntry>)(e.getValue() instanceof List<?> ? (Map<String, FlowEntry>)((List<String>)e.getValue()).stream().collect(Collectors.toMap(s -> s, s -> new FlowEntry(s, e.getKey(), 1.0f))) : (Map<String, FlowEntry>)e.getValue()).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue, throwingMerger(), CopyOnWriteMap.Tree::new))
-        }
-
-        /**
-         * Returns a merge function, suitable for use in {@link Map#merge(Object, Object,
-         * BiFunction) Map.merge()} or {@link Collectors#toMap(Function, Function, BinaryOperator)
-         * toMap()}, which always throws {@code IllegalStateException}. This can be used to enforce
-         * the assumption that the elements being collected are distinct.
-         *
-         * @param <T> the type of input arguments to the merge function
-         * @return a merge function which always throw {@code IllegalStateException}
-         */
-        private static <T> BinaryOperator<T> throwingMerger() {
-            return (u, v) -> {
-                throw new IllegalStateException(String.format("Duplicate key %s", u));
-            };
+            throw new IllegalArgumentException("Don't know how to convert '" + e.getValue() + "'' to category flow entry map.");
         }
 
         @Override
@@ -691,12 +698,35 @@ Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
         }
     }
 
+    public static float toFloat(Object o, Float def) {
+        if (o instanceof Float) {
+            return (Float)o;
+        }
+        if (o instanceof Integer) {
+            return (Integer)o;
+        }
+        if (o instanceof Double) {
+            return ((Double)o).floatValue();
+        }
+        if (o instanceof java.math.BigDecimal) {
+            return ((java.math.BigDecimal)o).floatValue();
+        }
+        if (def == null) {
+            throw new IllegalArgumentException("Don't know how to convert " + o + " to float.");
+        }
+        return def;
+    }
+
+    public static float toFloat(Object o) {
+        return toFloat(o, null);
+    }
+
     public static final class ThrottleCategory extends AbstractDescribableImpl<ThrottleCategory> {
         private Integer maxConcurrentPerNode;
         private Integer maxConcurrentTotal;
         private String categoryName;
         private List<NodeLabeledPair> nodeLabeledPairs;
-
+        
         @DataBoundConstructor
         public ThrottleCategory(String categoryName,
                                 Integer maxConcurrentPerNode,
