@@ -44,10 +44,10 @@ public class ThrottleCategoryTest
     public void shouldGetNonEmptyNodeLabeledPairsListThatWasSet()
     {
         String expectedLabel = "aLabel";
-        Integer expectedMax = 1;
+        Integer expectedMax = 33;
 
         ThrottleJobProperty.ThrottleCategory category =
-            new ThrottleJobProperty.ThrottleCategory(testCategoryName, 0, 0, null);
+            new ThrottleJobProperty.ThrottleCategory(testCategoryName, 33, 33, null);
         List<ThrottleJobProperty.NodeLabeledPair> nodeLabeledPairs = category.getNodeLabeledPairs();
         nodeLabeledPairs.add(new ThrottleJobProperty.NodeLabeledPair(expectedLabel, expectedMax));
 

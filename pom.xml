@@ -47,7 +47,7 @@ THE SOFTWARE.
   </licenses>
     
   <properties>
-    <revision>2.11</revision>
+    <revision>2.11.1</revision>
     <changelist>-SNAPSHOT</changelist>
     <jenkins.version>2.361.4</jenkins.version>
     <gitHubRepo>jenkinsci/throttle-concurrent-builds-plugin</gitHubRepo>

@@ -124,7 +124,7 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     assertThat(
                             blockageReasons,
                             hasItem(
-                                    Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(2)
+                                    Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(TestUtil.TWO_TOTAL_UTILIZATION)
                                             .toString()));
                     assertEquals(1, firstAgent.toComputer().countBusy());
                     TestUtil.hasPlaceholderTaskForRun(firstAgent, firstJobFirstRun);
@@ -163,7 +163,7 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     assertThat(
                             blockageReasons,
                             hasItem(
-                                    Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(2)
+                                    Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(TestUtil.TWO_TOTAL_UTILIZATION)
                                             .toString()));
 
                     Node firstAgent = j.jenkins.getNode(agentNames[0]);
@@ -179,6 +179,7 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     SemaphoreStep.success("wait-first-job/1", null);
                     j.assertBuildStatusSuccess(j.waitForCompletion(firstJobFirstRun));
 
+                    //Thread.sleep(99999);
                     WorkflowRun thirdJobFirstRun =
                             (WorkflowRun) queuedItem.getFuture().waitForStart();
                     SemaphoreStep.waitForStart("wait-third-job/1", thirdJobFirstRun);
