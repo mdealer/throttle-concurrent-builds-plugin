@@ -59,7 +59,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                     System.getProperty(
                             ThrottleQueueTaskDispatcher.class.getName()
                                     + ".USE_FLOW_EXECUTION_LIST",
-                            "true"));
+                            "false"));
 
     @Deprecated
     @Override
@@ -80,8 +80,8 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         Map<String, Float> pipelineCategories = categoriesForPipeline(task);
 
         // Handle multi-configuration filters
-        if (!shouldBeThrottled(task, tjp) && pipelineCategories.isEmpty()) {
-            LOGGER.log(Level.INFO, task.getDisplayName() + ": should not be throttled on node " + node.getDisplayName() + ", tjp: " + tjp);
+        if (!shouldBeThrottled(task, tjp, pipelineCategories)) {
+            LOGGER.log(Level.FINER, task.getDisplayName() + ": should not be throttled on node " + node.getDisplayName() + ", tjp: " + tjp);
             return null;
         }
 
@@ -90,9 +90,15 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             if (cause != null) {
                 return cause;
             }
-            if (tjp != null) {
+            if (!pipelineCategories.isEmpty()) {
+                if (tjp != null && tjp.getThrottleOption().equals("category")) {
+                    pipelineCategories = overrideUtilizations(tjp.getUtilizations(), pipelineCategories);
+                }    
+                LOGGER.log(Level.FINER, "{0} {1}: canTakeImpl by pipelineCategories: {2}", new Object[] { node.getDisplayName(), task.getDisplayName(), pipelineCategories });
+                return throttleCheckForCategories(node, task, jenkins, pipelineCategories);
+            } else if (tjp != null) {
                 if (tjp.getThrottleOption().equals("project")) {
-                    LOGGER.log(Level.INFO, "{0}: canTakeImpl by project: {1}", new Object[] { node.getDisplayName(), task.getDisplayName() });
+                    LOGGER.log(Level.FINER, "{0}: canTakeImpl by project: {1}", new Object[] { node.getDisplayName(), task.getDisplayName() });
                     if (tjp.getMaxConcurrentPerNode() > 0) {
                         int maxConcurrentPerNode = tjp.getMaxConcurrentPerNode();
                         int runCount = buildsOfProjectOnNode(node, task);
@@ -104,12 +110,9 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                     }
                 } else if (tjp.getThrottleOption().equals("category")) {
                     Map<String, Float> utilizations = overrideUtilizations(tjp.getUtilizations(), pipelineCategories);
-                    LOGGER.log(Level.INFO, "{0} {1}: canTakeImpl by category: {2}", new Object[] { node.getDisplayName(), task.getDisplayName(), utilizations });
+                    LOGGER.log(Level.FINER, "{0} {1}: canTakeImpl by category: {2}", new Object[] { node.getDisplayName(), task.getDisplayName(), utilizations });
                     return throttleCheckForCategories(node, task, jenkins, utilizations);
                 }
-            } else if (!pipelineCategories.isEmpty()) {
-                LOGGER.log(Level.INFO, "{0} {1}: canTakeImpl by pipelineCategories: {2}", new Object[] { node.getDisplayName(), task.getDisplayName(), pipelineCategories });
-                return throttleCheckForCategories(node, task, jenkins, pipelineCategories);
             }
         }
 
@@ -118,6 +121,11 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
     private CauseOfBlockage throttleCheckForCategories(Node node, Task task, Jenkins jenkins, Map<String, Float> categories) {
         boolean allNodes = node == null;
+        if (allNodes) {
+            LOGGER.log(Level.FINE, task.getFullDisplayName() + ": Looking at all nodes");
+        } else {
+            LOGGER.log(Level.FINE, task.getFullDisplayName() + ": Looking at node " + node.getDisplayName());
+        }
         for (String catNm : categories.keySet()) {
             if (catNm != null && !catNm.equals("")) {
                 List<Task> categoryTasks = ThrottleJobProperty.getCategoryTasks(catNm);
@@ -126,44 +134,45 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                         ThrottleJobProperty.fetchDescriptor().getCategoryByName(catNm);
 
                 if (category != null) {
-                    LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at category " + category.getCategoryName());
                     Map<String, Float> runCount = new HashMap<>();
                     int maxConcurrent = allNodes ? category.getMaxConcurrentTotal() : getMaxConcurrentPerNodeBasedOnMatchingLabels(
                             node, category, category.getMaxConcurrentPerNode());
+                    
                     if (maxConcurrent > 0) {
-                        if (allNodes) {
-                            LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at all nodes");
-                        } else {
-                            LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at node " + node.getDisplayName());
-                        }
-                        LOGGER.log(Level.INFO, task.getDisplayName() + (allNodes ? ": max concurrent over all nodes is " : ": max concurrent per node is ") + maxConcurrent);
+                        LOGGER.log(Level.FINER, task.getFullDisplayName() + (allNodes ? ": max concurrent over all nodes is " : ": max concurrent per node is ") + maxConcurrent);
+
+                        LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Looking at category tasks: " + categoryTasks.stream().map(Object::toString).collect(Collectors.joining(", ")));
                         for (Task catTask : categoryTasks) {
-                            if (catTask.equals(task.getOwnerTask())) {
-                            //if (!catTask.getSubTasks().isEmpty()) {
+                            /*if (catTask.equals(task.getOwnerTask()) && (task.getOwnerTask() != task)) {
+                                LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Skipping parent category task: " + catTask);
                                 continue;
-                            }
-                            LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at category task: " + catTask);
+                            }*/
+
+                            /*if (jenkins.getQueue().isPending(catTask)) {
+                                LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Skipping pending category task: " + catTask);
+                                continue;
+                            }*/
                             if (jenkins.getQueue().isPending(catTask)) {
-                                LOGGER.log(Level.INFO, task.getDisplayName() + ": already pending");
                                 return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_BuildPending());
                             }
                             int buildCount = allNodes ? buildsOfProjectOnAllNodes(catTask) : buildsOfProjectOnNode(node, catTask);
                             if (buildCount != 0) {                                    
-                                LOGGER.log(Level.INFO, task.getDisplayName() + ": found other builds: " + buildCount);
+                                LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": freestyle build count for " + catTask + " is " + buildCount);
                                 computeCurrentUtilization(task, runCount, catTask, buildCount);
                             }
                         }
                         Map<String,List<FlowNode>> throttledPipelines = ThrottleJobProperty.getThrottledPipelineRunsForCategory(catNm);
+                        LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Looking at pipeline tasks: " + throttledPipelines.entrySet().stream().map(Object::toString).collect(Collectors.joining(", ")));
                         for (Map.Entry<String,List<FlowNode>> entry : throttledPipelines.entrySet()) {
-                            LOGGER.log(Level.INFO, task.getDisplayName() + ": Looking at entry " + entry.getKey());
                             if (hasPendingPipelineForCategory(entry.getValue())) {
-                                LOGGER.log(Level.INFO, task.getDisplayName() + ": Already pending");
                                 return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_BuildPending());
                             }
                             Run<?,?> r = Run.fromExternalizableId(entry.getKey());
                             if (r != null && r.isBuilding()) {
-                                LOGGER.log(Level.INFO, task.getDisplayName() + ": Run not null");
                                 List<FlowNode> pipelines = allNodes ? getPipelinesOnAllNodes(r, entry.getValue()) : getPipelinesOnNode(node, r, entry.getValue());
+                                if (pipelines.size() != 0) {                                    
+                                    LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": pipeline build count for " + r + " is " + pipelines.size());
+                                }
                                 computeCurrentUtilization2(task, pipelines, runCount, r);
                             }
                         }
@@ -171,9 +180,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                             return CauseOfBlockage.fromMessage(allNodes ? Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(runCount) : Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(runCount));
                         }
                     }
-                } else {
-                    LOGGER.log(Level.INFO, task.getDisplayName() + ": category is null");
-                }
+                } 
             }
         }
         return null;
@@ -184,25 +191,30 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     }
 
     private boolean evaluateBlockage(Task pendingTask, Map<String, Float> runCount, int limit, Map<String, Float> categories) {
-        LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": run counts:");
-        for (Map.Entry<String, Float> e : runCount.entrySet()) {
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": " + e.getKey() + ": " + e.getValue());
-        }
+        //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": run counts:");
+        //for (Map.Entry<String, Float> e : runCount.entrySet()) {
+            //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": " + e.getKey() + ": " + e.getValue());
+        //}
         if (runCount != null && runCount.entrySet().stream().anyMatch(v -> roundToPrecision(v.getValue() + categories.getOrDefault(v.getKey(), 0.0f)) > limit)) {
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": max capacity reached");
+            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity reached: " + runCount);
             return true;
         } else {
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": max capacity NOT reached");
+            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity NOT reached: " + runCount);
         }
         return false;
     }
 
     private void computeCurrentUtilization2(Task pendingTask, List<FlowNode> pipelines, Map<String, Float> runCount, Run<?,?> r) {
         if (r.isBuilding()) {
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": isBuilding == true");
+            //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": isBuilding == true");
             if (pipelines != null && pipelines.size() != 0) {
                 for (FlowNode fn : pipelines) {
-                    Map<String, Float> cats = categoriesForPipeline(r, fn);
+                    ThrottleJobProperty tjp = getThrottleJobProperty(pendingTask);
+                    Map<String, Float> cats = new HashMap<>();
+                    if (tjp != null && tjp.getThrottleEnabled() && tjp.getThrottleOption().equals("category")) {
+                        cats = tjp.getUtilizations();
+                    }
+                    cats = overrideUtilizations(cats, categoriesForPipeline(r, fn));
                     for (Map.Entry<String, Float> kv : cats.entrySet()) {
                         runCount.put(kv.getKey(), kv.getValue() + runCount.getOrDefault(kv.getKey(), 0.0f));
                     }
@@ -214,7 +226,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     private void computeCurrentUtilization(Task pendingTask, Map<String, Float> runCount, Task runningTask, int multiplier) {
         Map<String, Float> pipeCats = categoriesForPipeline(runningTask);
         for (Map.Entry<String, Float> kv : pipeCats.entrySet()) {
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": other pipeline build cat: " + kv.getKey() + ": " + kv.getValue());
+            //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": other pipeline build cat: " + kv.getKey() + ": " + kv.getValue());
             runCount.put(kv.getKey(), kv.getValue() * multiplier + runCount.getOrDefault(kv.getKey(), 0.0f));
         }
         ThrottleJobProperty prop = getThrottleJobProperty(runningTask);
@@ -222,7 +234,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             if (pipeCats.containsKey(kv.getKey())) {
                 continue;
             }
-            LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": other freestyle build cat: " + kv.getKey() + ": " + kv.getValue());
+            //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": other freestyle build cat: " + kv.getKey() + ": " + kv.getValue());
             runCount.put(kv.getKey(), kv.getValue() * multiplier + runCount.getOrDefault(kv.getKey(), 0.0f));
         }
 
@@ -247,9 +259,10 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             if (tjp != null && tjp.isLimitOneJobWithMatchingParams() && isAnotherBuildWithSameParametersRunningOnAnyNode(item)) {
                 return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_OnlyOneWithMatchingParameters());
             }
-            LOGGER.log(Level.INFO, "canRun for Queue.Item {0}", item.task.getDisplayName());
+            //LOGGER.log(Level.INFO, "canRun for Queue.Item {0}", item.task.getDisplayName());
             return canRun(item.task, tjp, pipelineCategories);
         }
+        LOGGER.log(Level.FINER, item.getDisplayName() + ": should not be throttled, tjp: " + tjp);
         return null;
     }
 
@@ -263,8 +276,10 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         ThrottleMatrixProjectOptions matrixOptions = tjp.getMatrixOptions();
         return matrixOptions != null ? matrixOptions : ThrottleMatrixProjectOptions.DEFAULT;
     }
-
-    private boolean shouldBeThrottled(@NonNull Task task, @CheckForNull ThrottleJobProperty tjp) {
+    private boolean shouldBeThrottled(@NonNull Task task, @CheckForNull ThrottleJobProperty tjp, Map<String, Float> pipelineCategories) {
+        if (pipelineCategories != null && !pipelineCategories.isEmpty()) {
+            return true;
+        }
         if (tjp == null) {
             return false;
         }
@@ -287,6 +302,9 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         // Allow throttling by default
         return true;
     }
+    private boolean shouldBeThrottled(@NonNull Task task, @CheckForNull ThrottleJobProperty tjp) {
+        return shouldBeThrottled(task, tjp, categoriesForPipeline(task));
+    }
 
     private CauseOfBlockage canRun(Task task, ThrottleJobProperty tjp, Map<String, Float> pipelineCategories) {
         if (Jenkins.getAuthentication().equals(ACL.SYSTEM)) {
@@ -301,15 +319,21 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
     private CauseOfBlockage canRunImpl(Task task, ThrottleJobProperty tjp, Map<String, Float> pipelineCategories) {
         final Jenkins jenkins = Jenkins.get();
-        if (!shouldBeThrottled(task, tjp) && pipelineCategories.isEmpty()) {
+        if (!shouldBeThrottled(task, tjp, pipelineCategories)) {
             return null;
         }
         if (jenkins.getQueue().isPending(task)) {
             return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_BuildPending());
         }
-        if (tjp != null) {
+        if (!pipelineCategories.isEmpty()) {
+            if (tjp != null && tjp.getThrottleOption().equals("category")) {
+                pipelineCategories = overrideUtilizations(tjp.getUtilizations(), pipelineCategories);
+            }
+            LOGGER.log(Level.FINER, "{0}: canRunImpl by pipelineCategories: {1}", new Object[] { task.getDisplayName(), pipelineCategories });
+            return throttleCheckForCategories(null, task, jenkins, pipelineCategories);
+        } else if (tjp != null) {
             if (tjp.getThrottleOption().equals("project")) {
-                LOGGER.log(Level.INFO, "{0}: canRunImpl by project", task.getDisplayName());
+                LOGGER.log(Level.FINER, "{0}: canRunImpl by project", task.getDisplayName());
                 if (tjp.getMaxConcurrentTotal() > 0) {
                     int maxConcurrentTotal = tjp.getMaxConcurrentTotal();
                     int totalRunCount = buildsOfProjectOnAllNodes(task);
@@ -320,14 +344,10 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                 }
             } else if (tjp.getThrottleOption().equals("category")) {
                 Map<String, Float> utilizations = overrideUtilizations(tjp.getUtilizations(), pipelineCategories);
-                LOGGER.log(Level.INFO, "{0}: canRunImpl by category: {1}", new Object[] { task.getDisplayName(), utilizations });
+                LOGGER.log(Level.FINER, "{0}: canRunImpl by category: {1}", new Object[] { task.getDisplayName(), utilizations });
                 return throttleCheckForCategories(null, task, jenkins, utilizations);
             }
-        } else if (!pipelineCategories.isEmpty()) {
-            LOGGER.log(Level.INFO, "{0}: canRunImpl by pipelineCategories: {1}", new Object[] { task.getDisplayName(), pipelineCategories });
-            return throttleCheckForCategories(null, task, jenkins, pipelineCategories);
         }
-
         return null;
     }
 
@@ -520,16 +540,16 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             p = (Job<?,?>) task;
             if (task instanceof MatrixConfiguration) {
                 p = ((MatrixConfiguration)task).getParent();
-            } 
+            }
         } else if (task instanceof PlaceholderTask) {
-            LOGGER.log(Level.INFO, "Placeholdertask {0}", new Object[] { task });
+            //LOGGER.log(Level.INFO, "Placeholdertask {0}", new Object[] { task });
             p = (Job<?,?>)((PlaceholderTask)task).getOwnerTask();
         }
         if (p != null) {
             prop = p.getProperty(ThrottleJobProperty.class);
         }
         if (prop == null) {
-            LOGGER.log(Level.INFO, "tjp is null for task: {0}, {1}", new Object[] { task, task.getClass().getName() });
+            //LOGGER.log(Level.INFO, "tjp is null for task: {0}, {1}", new Object[] { task, task.getClass().getName() });
         }
         return prop;
     }
@@ -540,7 +560,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
     private List<FlowNode> getPipelinesOnNode(@NonNull Node node, @NonNull Run<?,?> run, @NonNull List<FlowNode> flowNodes) {
         List<FlowNode> nodes = new ArrayList<FlowNode>();
-        LOGGER.log(Level.FINE, "Checking for pipelines of {0} on node {1}", new Object[] {run.getDisplayName(), node.getDisplayName()});
+        //LOGGER.log(Level.FINE, "Checking for pipelines of {0} on node {1}", new Object[] {run.getDisplayName(), node.getDisplayName()});
 
         Computer computer = node.toComputer();
         if (computer != null) { //Not all nodes are certain to become computers, like nodes with 0 executors.
@@ -569,7 +589,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
     private int buildsOfProjectOnNode(Node node, Task task) {
         if (!shouldBeThrottled(task, getThrottleJobProperty(task))) {
-            LOGGER.log(Level.INFO, "buildsOfProjectOnNode: shouldBeThrottled: false, for task {0}", new Object[] { task });
+            //LOGGER.log(Level.INFO, "buildsOfProjectOnNode: shouldBeThrottled: false, for task {0}", new Object[] { task });
             return 0;
         }
 
@@ -580,7 +600,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
     private int buildsOfProjectOnAllNodes(Task task) {
         if (!shouldBeThrottled(task, getThrottleJobProperty(task))) {
-            LOGGER.log(Level.INFO, "buildsOfProjectOnAllNodes: shouldBeThrottled: false, for task {0}", new Object[] { task });
+            //LOGGER.log(Level.INFO, "buildsOfProjectOnAllNodes: shouldBeThrottled: false, for task {0}", new Object[] { task });
             return 0;
         }
 
@@ -596,12 +616,15 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     }
 
     private int buildsOfPipelineJob(Task task) {
-        LOGGER.log( Level.INFO, task.getDisplayName() + "buildsOfPipelineJob");
+        //LOGGER.log( Level.INFO, task.getDisplayName() + "buildsOfPipelineJob");
         int runCount = 0;
         for (FlowExecution flowExecution : FlowExecutionList.get()) {
             if (isExecutionOfTask(task, flowExecution)) {
                 runCount++;
             }
+        }
+        if (runCount != 0) {
+            LOGGER.log(Level.FINEST, "{0}: FlowExecutionList builds: {2}", new Object[] {task, runCount});
         }
 
         return runCount;
@@ -623,25 +646,31 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             return false;
         }
         final SubTask parent = executable.getParent();
-        LOGGER.log(Level.INFO, "{0}: getOwnerTask: {1}, parent: {2}, in queue: {3}", new Object[] {task.getDisplayName(), parent.getDisplayName(), parent.getOwnerTask().getDisplayName(), Queue.getInstance().contains(parent.getOwnerTask())});
-        return (executable != null && (task.equals(parent) || task.equals(parent.getOwnerTask())));
+        //LOGGER.log(Level.INFO, "{0}: getOwnerTask: {1}, parent: {2}, in queue: {3}", new Object[] {task.getDisplayName(), parent.getDisplayName(), parent.getOwnerTask().getDisplayName(), Queue.getInstance().contains(parent.getOwnerTask())});
+        return (executable != null && (task.equals(parent) || task.equals(parent.getOwnerTask()) || task.getOwnerTask().equals(parent.getOwnerTask()) || task.getOwnerTask().equals(parent)));
     }
 
     private int buildsOfProjectOnNodeImpl(Node node, Task task) {
         int runCount = 0;
-        LOGGER.log(Level.INFO, "Checking for builds of {0} on node {1}", new Object[] {task.getName(), node.getDisplayName()});
+        //LOGGER.log(Level.INFO, "Checking for builds of {0} on node {1}", new Object[] {task.getName(), node.getDisplayName()});
 
         // I think this'll be more reliable than job.getBuilds(), which seemed to not always get
         // a build right after it was launched, for some reason.
         Computer computer = node.toComputer();
         if (computer != null) { //Not all nodes are certain to become computers, like nodes with 0 executors.
             // Count flyweight tasks that might not consume an actual executor.
-            for (Executor e : computer.getOneOffExecutors()) {
-                runCount += buildsOnExecutor(task, e);
-            }
+            /*for (Executor e : computer.getOneOffExecutors()) {
+                int n = buildsOnExecutor(task, e);
+                //LOGGER.log(Level.FINEST, "{0}: one-off builds on node {1}: {2}", new Object[] {task.getName(), node.getDisplayName(), n});
+                runCount += n;
+            }*/
 
             for (Executor e : computer.getExecutors()) {
-                runCount += buildsOnExecutor(task, e);
+                int n = buildsOnExecutor(task, e);
+                if (n != 0) {
+                    LOGGER.log(Level.FINEST, "{0}: normal builds on node {1}: {2}", new Object[] {task, node.getDisplayName(), n});
+                }
+                runCount += n;
             }
         }
 
@@ -649,7 +678,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     }
 
     private int buildsOfProjectOnAllNodesImpl(Task task) {
-        LOGGER.log(Level.INFO, task.getDisplayName() + "buildsOfProjectOnAllNodesImpl");
+        //LOGGER.log(Level.INFO, task.getDisplayName() + "buildsOfProjectOnAllNodesImpl");
         final Jenkins jenkins = Jenkins.get();
         int totalRunCount = buildsOfProjectOnNode(jenkins, task);
 

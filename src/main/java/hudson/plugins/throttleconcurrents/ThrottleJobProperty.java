@@ -286,18 +286,18 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * @return a map (possibly empty) from {@link FlowNode#getId} to a list of category names (possibly empty)
      */
     @NonNull
-    static Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run) {
-        LOGGER.log(Level.INFO, "getCategoriesForRunByFlowNode for run {0}", run.getDisplayName());
+    static synchronized Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run) {
+        //LOGGER.log(Level.INFO, "getCategoriesForRunByFlowNode for run {0}", run.getDisplayName());
         Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
 
         final DescriptorImpl descriptor = fetchDescriptor();
 
         for (ThrottleCategory cat : descriptor.getCategories()) {
             Map<String,Map<String, FlowEntry>> runs = descriptor.getThrottledPipelinesForCategory(cat.getCategoryName());
-            LOGGER.log(Level.INFO, "runs count for category {0}: {1}", new Object[] { cat.getCategoryName(), runs.size() });
-            for (Map.Entry<String, Map<String, FlowEntry>> e : runs.entrySet()) {
-                LOGGER.log(Level.INFO, "{0}: {1}", new Object[] { e.getKey(), e.getValue() });
-            }
+            //LOGGER.log(Level.INFO, "runs count for category {0}: {1}", new Object[] { cat.getCategoryName(), runs.size() });
+            //for (Map.Entry<String, Map<String, FlowEntry>> e : runs.entrySet()) {
+                //LOGGER.log(Level.INFO, "{0}: {1}", new Object[] { e.getKey(), e.getValue() });
+            //}
             Map<String, FlowEntry> theRun = runs.get(run.getExternalizableId());
             if (theRun != null) {
                 Collection<FlowEntry> nodeIds = theRun.values();
@@ -308,8 +308,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                     }
                 }
             } else {
-                LOGGER.log(Level.WARNING, "Error getting flow entries for pipeline run {0} and category {1}",
-                new Object[] {run.getDisplayName(), cat.getCategoryName()});
+                //LOGGER.log(Level.WARNING, "Error getting flow entries for pipeline run {0} and category {1}", new Object[] {run.getDisplayName(), cat.getCategoryName()});
             }
         }
 
@@ -358,7 +357,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * @return a map of IDs for {@link Run}s to lists of {@link FlowNode}s for this category, if any. May be empty.
      */
     @NonNull
-    static Map<String,List<FlowNode>> getThrottledPipelineRunsForCategory(@NonNull String category) {
+    static synchronized Map<String,List<FlowNode>> getThrottledPipelineRunsForCategory(@NonNull String category) {
         Map<String,List<FlowNode>> throttledPipelines = new TreeMap<>();
 
         final DescriptorImpl descriptor = fetchDescriptor();
@@ -368,7 +367,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
 
             if (flowNodeRun == null ||
                     !(flowNodeRun instanceof FlowExecutionOwner.Executable) ||
-                    !flowNodeRun.isBuilding()) {
+                    !flowNodeRun.isBuilding()) { 
                 descriptor.removeAllFromPipelineRunForCategory(currentPipeline.getKey(), category, null);
             } else {
                 FlowExecutionOwner executionOwner = ((FlowExecutionOwner.Executable) flowNodeRun).asFlowExecutionOwner();
@@ -419,7 +418,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
 
         private List<ThrottleCategory> categories;
 
-        private Map<String,Map<String,Map<String, FlowEntry>>> throttledPipelinesByCategory;
+        @Deprecated private Map<String,Map<String,List<String>>> throttledPipelinesByCategory;
+
+        private Map<String,Map<String,Map<String, FlowEntry>>> throttledPipelinesByCategoryFe;
         
         /** Map from category names, to properties including that category. */
         private transient Map<String,Map<ThrottleJobProperty,Void>> propertiesByCategory 
@@ -434,6 +435,16 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 // Explictly handle the persisted data from the version 1.8.1
                 if (propertiesByCategory == null) {
                     propertiesByCategory = new HashMap<>();
+                }
+                if (throttledPipelinesByCategoryFe == null) {
+                    throttledPipelinesByCategoryFe = new HashMap<>();
+                } else {
+                    throttledPipelinesByCategoryFe.clear();
+                }
+                if (throttledPipelinesByCategory != null && !throttledPipelinesByCategory.isEmpty()) {
+                    throttledPipelinesByCategory = new HashMap<>();
+                } else {
+                    throttledPipelinesByCategory.clear();
                 }
                 if (!propertiesByCategory.isEmpty()) {
                     propertiesByCategory.clear();
@@ -537,24 +548,24 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         public void load() {
             super.load();
             initThrottledPipelines();
-            LOGGER.log(Level.FINE, "load: {0}", throttledPipelinesByCategory);
+            LOGGER.log(Level.FINE, "load: {0}", throttledPipelinesByCategoryFe);
         }
 
         private synchronized void initThrottledPipelines() {
-            if (throttledPipelinesByCategory == null) {
-                throttledPipelinesByCategory = new TreeMap<>();
-            } else if (throttledPipelinesByCategory.entrySet().stream()
+            if (throttledPipelinesByCategoryFe == null) {
+                throttledPipelinesByCategoryFe = new TreeMap<>();
+            } else if (throttledPipelinesByCategoryFe.entrySet().stream()
                     .anyMatch(e -> !(e.getValue() instanceof CopyOnWriteMap.Tree))) {
                 // if any of the nested maps are not copy-on-write tree maps, convert the whole data
                 // structure.
                 LOGGER.log(
                         Level.INFO,
                         "Migrating throttled pipelines by category to copy-on-write data structures.");
-                LOGGER.log(Level.FINE, "Original values: {0}", throttledPipelinesByCategory);
+                LOGGER.log(Level.FINE, "Original values: {0}", throttledPipelinesByCategoryFe);
                 // For consistency, the type of map returned below should match that of the
                 // initThrottledPipelines method.
-                throttledPipelinesByCategory =
-                        throttledPipelinesByCategory.entrySet().stream()
+                throttledPipelinesByCategoryFe =
+                        throttledPipelinesByCategoryFe.entrySet().stream()
                                 .collect(
                                         Collectors.toMap(
                                                 Map.Entry::getKey,
@@ -565,7 +576,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 LOGGER.log(
                         Level.INFO,
                         "Finished migrating throttled pipelines by category to copy-on-write data structures. Immediately persisting migrated state.");
-                LOGGER.log(Level.FINE, "New values: {0}", throttledPipelinesByCategory);
+                LOGGER.log(Level.FINE, "New values: {0}", throttledPipelinesByCategoryFe);
 
                 // persist state, now that the data structures have been converted.
                 save();
@@ -608,7 +619,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         @Override
         public void save() {
             super.save();
-            LOGGER.log(Level.FINE, "save: {0}", throttledPipelinesByCategory);
+            LOGGER.log(Level.FINE, "save: {0}", throttledPipelinesByCategoryFe);
         }
 
         @NonNull
@@ -619,15 +630,15 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         @NonNull
         private Map<String,Map<String, FlowEntry>> internalGetThrottledPipelinesForCategory(@NonNull String category) {
             if (getCategoryByName(category) != null) {
-                if (throttledPipelinesByCategory.containsKey(category)) {
-                    return throttledPipelinesByCategory.get(category);
+                if (throttledPipelinesByCategoryFe.containsKey(category)) {
+                    return throttledPipelinesByCategoryFe.get(category);
                 }
             }
             return new CopyOnWriteMap.Tree<>();
         }
 
         public synchronized void addThrottledPipelineForCategory(@NonNull String runId, @NonNull FlowEntry fe, TaskListener listener) {
-            LOGGER.log(Level.INFO, "addThrottledPipelineForCategory {0}, {1}", new Object[] { runId, fe });
+            LOGGER.log(Level.FINEST, "addThrottledPipelineForCategory {0}, {1}", new Object[] { runId, fe });
             if (getCategoryByName(fe.category) == null) {
                 if (listener != null) {
                     listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(fe.category));
@@ -641,7 +652,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 }
                 flowNodes.put(fe.flowId, fe);
                 currentPipelines.put(runId, flowNodes);
-                throttledPipelinesByCategory.put(fe.category, currentPipelines);
+                throttledPipelinesByCategoryFe.put(fe.category, currentPipelines);
             }
         }
 
@@ -669,9 +680,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 }
 
                 if (currentPipelines.isEmpty()) {
-                    throttledPipelinesByCategory.remove(category);
+                    throttledPipelinesByCategoryFe.remove(category);
                 } else {
-                    throttledPipelinesByCategory.put(category, currentPipelines);
+                    throttledPipelinesByCategoryFe.put(category, currentPipelines);
                 }
             }
         }
@@ -690,9 +701,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                     currentPipelines.remove(runId);
                 }
                 if (currentPipelines.isEmpty()) {
-                    throttledPipelinesByCategory.remove(category);
+                    throttledPipelinesByCategoryFe.remove(category);
                 } else {
-                    throttledPipelinesByCategory.put(category, currentPipelines);
+                    throttledPipelinesByCategoryFe.put(category, currentPipelines);
                 }
             }
         }

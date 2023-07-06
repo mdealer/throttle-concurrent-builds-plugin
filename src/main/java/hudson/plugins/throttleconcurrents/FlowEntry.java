@@ -21,6 +21,7 @@ import hudson.util.CopyOnWriteMap.Tree;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -53,7 +54,7 @@ import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 
-public class FlowEntry implements Comparable {
+public class FlowEntry implements Comparable<FlowEntry>, Serializable {
     public FlowEntry(String flowId, String category, Float amount) {
         this.flowId = flowId;
         this.category = category;
@@ -63,20 +64,21 @@ public class FlowEntry implements Comparable {
     {
         return flowId.compareTo(obj.flowId);
     }
-    public int compareTo(Object obj)
-    {
-        if (obj instanceof FlowEntry)
-            return compareTo((FlowEntry)obj);
-        throw new UnsupportedOperationException();
-    }
     public int hashCode() {
         return flowId.hashCode();
     }
     public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
         if (obj == null) {
             return false;
         }
-        return this.compareTo(obj) == 0;
+        if (obj instanceof FlowEntry) {
+            FlowEntry fe = (FlowEntry)obj;
+            return flowId.equals(fe.flowId);
+        }
+        return false;
     }    
     public String flowId;
     public String category;

@@ -46,7 +46,6 @@ public class ThrottleStepExecution extends StepExecution {
         if (r != null && flowNode != null) {
             runId = r.getExternalizableId();
             flowNodeId = flowNode.getId();
-            LOGGER.log(Level.INFO, "ThrottleStepExecution.start");
             List<String> nonexistent = new ArrayList<String>();
             for (String key : getUtilizations().keySet()) {
                 if (descriptor.getCategoryByName(key) == null) {
@@ -55,7 +54,7 @@ public class ThrottleStepExecution extends StepExecution {
             }
             if (nonexistent.isEmpty()) {
                 for (Map.Entry<String, Float> kv : getUtilizations().entrySet()) {
-                    descriptor.addThrottledPipelineForCategory(runId, new FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
+                    descriptor.addThrottledPipelineForCategory(runId, new hudson.plugins.throttleconcurrents.FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
                 }
             } else {
                 throw new IllegalArgumentException("One or more specified categories do not exist: " + StringUtils.join(nonexistent, ", "));

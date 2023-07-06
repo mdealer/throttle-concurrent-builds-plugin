@@ -179,6 +179,7 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     SemaphoreStep.success("wait-first-job/1", null);
                     j.assertBuildStatusSuccess(j.waitForCompletion(firstJobFirstRun));
 
+                    //Thread.sleep(99999);
                     WorkflowRun thirdJobFirstRun =
                             (WorkflowRun) queuedItem.getFuture().waitForStart();
                     SemaphoreStep.waitForStart("wait-third-job/1", thirdJobFirstRun);
