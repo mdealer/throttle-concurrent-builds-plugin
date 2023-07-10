@@ -443,7 +443,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 }
                 if (throttledPipelinesByCategory != null && !throttledPipelinesByCategory.isEmpty()) {
                     throttledPipelinesByCategory = new HashMap<>();
-                } else {
+                } else if (throttledPipelinesByCategory != null) {
                     throttledPipelinesByCategory.clear();
                 }
                 if (!propertiesByCategory.isEmpty()) {

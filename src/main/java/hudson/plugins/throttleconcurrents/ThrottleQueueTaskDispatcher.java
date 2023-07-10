@@ -73,7 +73,6 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             return canTakeImpl(node, task);
         }
     }
-
     private CauseOfBlockage canTakeImpl(Node node, Task task) {
         final Jenkins jenkins = Jenkins.get();
         ThrottleJobProperty tjp = getThrottleJobProperty(task);
@@ -187,7 +186,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     }
 
     private int roundToPrecision(float f) {
-        return Math.round(f * 1000) / 1000;
+        return Math.round(f * 100) / 100;
     }
 
     private boolean evaluateBlockage(Task pendingTask, Map<String, Float> runCount, int limit, Map<String, Float> categories) {
@@ -196,10 +195,10 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": " + e.getKey() + ": " + e.getValue());
         //}
         if (runCount != null && runCount.entrySet().stream().anyMatch(v -> roundToPrecision(v.getValue() + categories.getOrDefault(v.getKey(), 0.0f)) > limit)) {
-            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity reached: " + runCount);
+            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity reached: " + runCount + ", limit: " + limit);
             return true;
         } else {
-            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity NOT reached: " + runCount);
+            LOGGER.log(Level.FINE, pendingTask.getDisplayName() + ": max capacity NOT reached: " + runCount + ", limit: " + limit);
         }
         return false;
     }
