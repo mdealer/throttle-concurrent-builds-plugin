@@ -23,16 +23,13 @@ import hudson.plugins.throttleconcurrents.pipeline.ThrottleStep;
 import hudson.security.ACL;
 import hudson.security.ACLContext;
 import java.io.IOException;
-import java.lang.ref.SoftReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -41,7 +38,6 @@ import com.google.common.collect.Maps;
 
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import hudson.tasks.junit.TestResult;
 import jenkins.model.Jenkins;
 import org.codehaus.groovy.runtime.metaclass.MetaMethodIndex;
 import org.jenkinsci.plugins.workflow.actions.BodyInvocationAction;
@@ -66,44 +62,6 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                                     + ".USE_FLOW_EXECUTION_LIST",
                             "false"));
 
-    /*private class CacheEntry {
-        public CacheEntry(Node node) {
-            //NodeId = node.getNodeName();
-        }
-        //public String NodeId;
-        public long lastCanTakeTime = 0;
-        public long currentInterval = 0;
-
-        public long nextUnlockTime = 0;
-        public AtomicInteger blockedTimes = new AtomicInteger(0);
-
-        CauseOfBlockage cause;
-        public boolean canTake() {
-            if (currentInterval != 0 && (System.currentTimeMillis() < nextUnlockTime)) {
-                currentInterval = Math.min(10000, Math.max(0, blockedTimes.get() * 1000));
-                nextUnlockTime = System.currentTimeMillis() + currentInterval;
-                return false;
-            }
-            return true;
-        }
-        public void take() {
-            blockedTimes.set(0);
-            nextUnlockTime = 0;
-            currentInterval = 0;
-            cause = null;
-        }
-        public void applyCause(CauseOfBlockage cause) {
-            if (cause != null) {
-                blockedTimes.incrementAndGet();
-                cause = cause;
-            } else {
-                take();
-            }
-        }
-    }
-    // Provide some backoff to avoid wasting resources while nodes are busy with long running tasks
-    static java.util.concurrent.ConcurrentHashMap<String, CacheEntry> backoffMap = new ConcurrentHashMap<>();
-    static long lastBackoffMapResetTime = 0;*/
     @Deprecated
     @Override
     public @CheckForNull CauseOfBlockage canTake(Node node, Task task) {
@@ -115,43 +73,13 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                 }
             };
         }
-        /*if (lastBackoffMapResetTime == 0) {
-            lastBackoffMapResetTime = System.currentTimeMillis();
-        } else if (System.currentTimeMillis() - lastBackoffMapResetTime > 24 * 60 * 60000) {
-            lastBackoffMapResetTime = System.currentTimeMillis();
-            backoffMap.clear();
-        }
-        CacheEntry ce = backoffMap.computeIfAbsent(node.getNodeName(), name -> {
-            return new CacheEntry(node);
-        });
-        if (ce == null) {
-            ce = new CacheEntry(node);
-            backoffMap.replace(node.getNodeName(), ce);
-        };
-        if (!ce.canTake()) {
-            return ce.cause;
-        }*/
         if (Jenkins.getAuthentication().equals(ACL.SYSTEM)) {
-            CauseOfBlockage r = canTakeImpl(node, task);
-            //ce.applyCause(r);
-            /*if (r == null) {
-                CountCacheEntry cce = getCountCache(node, task);
-                cce.lastUpdate = System.currentTimeMillis();
-                cce.count.incrementAndGet();
-            }*/
-            return r;
+            return canTakeImpl(node, task);
         }
 
         // Throttle-concurrent-builds requires READ permissions for all projects.
         try (ACLContext ctx = ACL.as(ACL.SYSTEM)) {
-            CauseOfBlockage r = canTakeImpl(node, task);
-            //ce.applyCause(r);
-            /*if (r == null) {
-                CountCacheEntry cce = getCountCache(node, task);
-                cce.lastUpdate = System.currentTimeMillis();
-                cce.count.incrementAndGet();
-            }*/
-            return r;
+            return canTakeImpl(node, task);
         }
     }
     private CauseOfBlockage canTakeImpl(Node node, Task task) {
@@ -772,36 +700,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         return (executable != null && (task.equals(parent) || task.equals(parent.getOwnerTask()) || task.getOwnerTask().equals(parent.getOwnerTask()) || task.getOwnerTask().equals(parent)));
     }
 
-    /*public class CountCacheEntry {
-        public long lastUpdate = 0;
-        public AtomicInteger count = new AtomicInteger(0);
-
-    }
-    public long lastCountCacheMapResetTime = 0;
-    ConcurrentHashMap<String, CountCacheEntry> countCacheMap = new ConcurrentHashMap<>();
-    private CountCacheEntry getCountCache(Node node, Task task) {
-        String key = node.getNodeName() + " " + task.getUrl();
-        CountCacheEntry ce = countCacheMap.computeIfAbsent(key, name -> {
-            return new CountCacheEntry();
-        });
-        if (ce == null) {
-            ce = new CountCacheEntry();
-            countCacheMap.replace(key, ce);
-        };
-        return ce;
-    }*/
     private int buildsOfProjectOnNodeImpl(Node node, Task task) {
-        long ct = System.currentTimeMillis();
-        /*if (lastCountCacheMapResetTime == 0) {
-            lastCountCacheMapResetTime = ct;
-        } else if (ct - lastCountCacheMapResetTime > 1200000) {
-            lastCountCacheMapResetTime = ct;
-            countCacheMap.clear();
-        }*/
-        /*CountCacheEntry ce = getCountCache(node, task);
-        if (ct - ce.lastUpdate < 10000) {
-            return ce.count.get();
-        }*/
         int runCount = 0;
         //LOGGER.log(Level.INFO, "Checking for builds of {0} on node {1}", new Object[] {task.getName(), node.getDisplayName()});
 
@@ -824,8 +723,6 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                 runCount += n;
             }
         }
-        //ce.count.set(runCount);
-        //ce.lastUpdate = ct;
         return runCount;
     }
 
