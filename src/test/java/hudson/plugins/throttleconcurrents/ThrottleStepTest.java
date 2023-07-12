@@ -22,6 +22,7 @@ import hudson.model.queue.QueueTaskFuture;
 import hudson.plugins.throttleconcurrents.pipeline.ThrottleStep;
 import hudson.util.CopyOnWriteMap;
 
+import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.cps.SnippetizerTester;
@@ -632,7 +633,7 @@ public class ThrottleStepTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1).toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(Map.of("one_per_node", 1.0)).toString()));
         assertEquals(1, agent.toComputer().countBusy());
         TestUtil.hasPlaceholderTaskForRun(agent, firstJobFirstRun);
 

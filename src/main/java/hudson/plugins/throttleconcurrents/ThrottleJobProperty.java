@@ -548,7 +548,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         public void load() {
             super.load();
             initThrottledPipelines();
-            LOGGER.log(Level.FINE, "load: {0}", throttledPipelinesByCategoryFe);
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "load: {0}", throttledPipelinesByCategoryFe);
+            }
         }
 
         private synchronized void initThrottledPipelines() {
@@ -561,7 +563,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 LOGGER.log(
                         Level.INFO,
                         "Migrating throttled pipelines by category to copy-on-write data structures.");
-                LOGGER.log(Level.FINE, "Original values: {0}", throttledPipelinesByCategoryFe);
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, "Original values: {0}", throttledPipelinesByCategoryFe);
+                }
                 // For consistency, the type of map returned below should match that of the
                 // initThrottledPipelines method.
                 throttledPipelinesByCategoryFe =
@@ -576,7 +580,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
                 LOGGER.log(
                         Level.INFO,
                         "Finished migrating throttled pipelines by category to copy-on-write data structures. Immediately persisting migrated state.");
-                LOGGER.log(Level.FINE, "New values: {0}", throttledPipelinesByCategoryFe);
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, "New values: {0}", throttledPipelinesByCategoryFe);
+                }
 
                 // persist state, now that the data structures have been converted.
                 save();
@@ -619,7 +625,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         @Override
         public void save() {
             super.save();
-            LOGGER.log(Level.FINE, "save: {0}", throttledPipelinesByCategoryFe);
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "save: {0}", throttledPipelinesByCategoryFe);
+            }
         }
 
         @NonNull
@@ -638,7 +646,9 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
         }
 
         public synchronized void addThrottledPipelineForCategory(@NonNull String runId, @NonNull FlowEntry fe, TaskListener listener) {
-            LOGGER.log(Level.FINEST, "addThrottledPipelineForCategory {0}, {1}", new Object[] { runId, fe });
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                LOGGER.log(Level.FINEST, "addThrottledPipelineForCategory {0}, {1}", new Object[]{runId, fe});
+            }
             if (getCategoryByName(fe.category) == null) {
                 if (listener != null) {
                     listener.getLogger().println(Messages.ThrottleJobProperty_DescriptorImpl_NoSuchCategory(fe.category));
