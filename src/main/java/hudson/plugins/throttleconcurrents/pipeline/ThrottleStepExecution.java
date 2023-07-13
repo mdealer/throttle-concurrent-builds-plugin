@@ -54,7 +54,7 @@ public class ThrottleStepExecution extends StepExecution {
             }
             if (nonexistent.isEmpty()) {
                 for (Map.Entry<String, Float> kv : getUtilizations().entrySet()) {
-                    descriptor.addThrottledPipelineForCategory(runId, new hudson.plugins.throttleconcurrents.FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
+                    descriptor.addThrottledPipelineForCategoryDeferred(runId, new hudson.plugins.throttleconcurrents.FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
                 }
             } else {
                 throw new IllegalArgumentException("One or more specified categories do not exist: " + StringUtils.join(nonexistent, ", "));
@@ -90,8 +90,9 @@ public class ThrottleStepExecution extends StepExecution {
 
         @Override protected void finished(StepContext context) throws Exception {
             if (runId != null && flowNodeId != null) {
+                ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
                 for (String category : categories.keySet()) {
-                    ThrottleJobProperty.fetchDescriptor().removeThrottledPipelineForCategory(runId,
+                    descriptor.removeThrottledPipelineForCategoryDeferred(runId,
                             flowNodeId,
                             category,
                             context.get(TaskListener.class));
