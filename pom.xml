@@ -34,7 +34,7 @@ THE SOFTWARE.
   <artifactId>throttle-concurrents</artifactId>
   <packaging>hpi</packaging>
   <name>Jenkins Throttle Concurrent Builds Plug-in</name>
-  <version>2.11.1</version>
+  <version>2.11.3-fractional-throttling</version>
   <url>https://github.com/jenkinsci/throttle-concurrent-builds-plugin</url>
   <description>Plugin to throttle the number of concurrent builds of a single job per node.</description>
   
