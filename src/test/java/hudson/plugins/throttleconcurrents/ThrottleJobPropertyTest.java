@@ -472,7 +472,7 @@ public class ThrottleJobPropertyTest {
         try {
             assertEquals(
                     new HashSet<Queue.Task>(Arrays.asList(projects)),
-                    new HashSet<>(ThrottleJobProperty.getCategoryTasks(category)));
+                    new HashSet<>(ThrottleJobProperty.getCategoryTasks(category, ThrottleJobProperty.fetchDescriptor())));
         } finally {
             // do not check during e.g. rebuildDependencyGraph from delete
             j.jenkins.setAuthorizationStrategy(AuthorizationStrategy.UNSECURED);

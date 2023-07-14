@@ -62,6 +62,14 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                                     + ".USE_FLOW_EXECUTION_LIST",
                             "false"));
 
+    ThrottleJobProperty.DescriptorImpl descriptor = null;
+
+    void fetchDescriptor() {
+        if (descriptor == null)  {
+            descriptor = ThrottleJobProperty.fetchDescriptor();
+        }
+        descriptor.processQueues();
+    }
     @Deprecated
     @Override
     public @CheckForNull CauseOfBlockage canTake(Node node, Task task) {
@@ -85,8 +93,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     private CauseOfBlockage canTakeImpl(Node node, Task task) {
         final Jenkins jenkins = Jenkins.get();
         ThrottleJobProperty tjp = getThrottleJobProperty(task);
-        ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
-        descriptor.processQueues();
+        fetchDescriptor();
         Map<String, Float> pipelineCategories = categoriesForPipeline(task, descriptor);
 
         // Handle multi-configuration filters
@@ -148,7 +155,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         }
         for (String catNm : categories.keySet()) {
             if (catNm != null && !catNm.equals("")) {
-                List<Task> categoryTasks = ThrottleJobProperty.getCategoryTasks(catNm);
+                List<Task> categoryTasks = ThrottleJobProperty.getCategoryTasks(catNm, descriptor);
 
                 ThrottleJobProperty.ThrottleCategory category =
                         descriptor.getCategoryByName(catNm);
@@ -291,8 +298,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                 }
             };
         }
-        ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
-        descriptor.processQueues();
+        fetchDescriptor();
         ThrottleJobProperty tjp = getThrottleJobProperty(item.task);
         Map<String, Float> pipelineCategories = categoriesForPipeline(item.task, descriptor);
 
@@ -365,8 +371,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         if (!shouldBeThrottled(task, tjp, pipelineCategories)) {
             return null;
         }
-        ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
-        descriptor.processQueues();
+        fetchDescriptor();
         if (jenkins.getQueue().isPending(task)) {
             return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_BuildPending());
         }

@@ -290,7 +290,7 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * @return a map (possibly empty) from {@link FlowNode#getId} to a list of category names (possibly empty)
      */
     @NonNull
-    static synchronized Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run, DescriptorImpl descriptor) {
+    static Map<String, Map<String, Float>> getCategoriesForRunByFlowNode(@NonNull Run<?, ?> run, DescriptorImpl descriptor) {
         //LOGGER.log(Level.INFO, "getCategoriesForRunByFlowNode for run {0}", run.getDisplayName());
         Map<String, Map<String, Float>> categoriesByNode = new HashMap<>();
 
@@ -325,11 +325,10 @@ public class ThrottleJobProperty extends JobProperty<Job<?,?>> {
      * @param category a non-null string, the category name.
      * @return A list of {@link Queue.Task}s with {@link ThrottleJobProperty} attached.
      */
-    static List<Queue.Task> getCategoryTasks(@NonNull String category) {
+    static List<Queue.Task> getCategoryTasks(@NonNull String category, DescriptorImpl descriptor) {
         assert !StringUtils.isEmpty(category);
         List<Queue.Task> categoryTasks = new ArrayList<>();
         Collection<ThrottleJobProperty> properties;
-        DescriptorImpl descriptor = fetchDescriptor();
         synchronized (descriptor.propertiesByCategoryLock) {
             Map<ThrottleJobProperty, Void> _properties = descriptor.propertiesByCategory.get(category);
             properties = _properties != null ? new ArrayList<>(_properties.keySet()) : Collections.emptySet();
