@@ -18,17 +18,39 @@ import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.ArrayList;
 
 public class ThrottleStep extends Step implements Serializable {
-    private List<String> categories;
+    private Map<String, Float> categories;
 
     @DataBoundConstructor
-    public ThrottleStep(@NonNull List<String> categories) {
+    @SuppressWarnings("unchecked")
+    public ThrottleStep(@NonNull Object categories) {
+        if (categories instanceof Map) {
+            this.categories = (Map<String, Float>)categories;
+        } else if (categories instanceof List) {
+            this.categories = ((List<String>)categories).stream().distinct().collect(Collectors.toMap(item -> item, item -> 1.0f));
+        }
+    }
+
+    public ThrottleStep(@NonNull Map<String, Float> categories) {
         this.categories = categories;
+    }
+
+    public ThrottleStep(@NonNull List<String> categories) {
+        this.categories = categories.stream().collect(Collectors.toMap(item -> item, item -> 1.0f));
     }
 
     @NonNull
     public List<String> getCategories() {
+        return new ArrayList<String>(categories.keySet());
+    }
+
+    @NonNull
+    public Map<String, Float> getUtilizations() {
         return categories;
     }
 

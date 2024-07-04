@@ -5,11 +5,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.plugins.throttleconcurrents.ThrottleJobProperty;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import hudson.plugins.throttleconcurrents.FlowEntry;
+import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.steps.BodyExecutionCallback;
@@ -28,40 +27,10 @@ public class ThrottleStepExecution extends StepExecution {
     public List<String> getCategories() {
         return Collections.unmodifiableList(step.getCategories());
     }
-
-    private List<String> validateCategories(ThrottleJobProperty.DescriptorImpl descriptor, TaskListener listener) {
-        List<String> undefinedCategories = new ArrayList<>();
-        Set<String> duplicates = new HashSet<>();
-        List<String> unique = new ArrayList<>();
-
-        if (descriptor.getCategories().isEmpty()) {
-            undefinedCategories.addAll(getCategories());
-        } else {
-            for (String c : getCategories()) {
-                if (!unique.contains(c)) {
-                    unique.add(c);
-                } else {
-                    duplicates.add(c);
+    @NonNull
+    public Map<String, Float> getUtilizations() {
+        return Collections.unmodifiableMap(step.getUtilizations());
                 }
-                if (descriptor.getCategoryByName(c) == null) {
-                    undefinedCategories.add(c);
-                }
-            }
-        }
-
-        if (!duplicates.isEmpty()) {
-            listener.getLogger()
-                    .println("One or more duplicate categories (" + StringUtils.join(duplicates, ", ")
-                            + ") specified. Duplicates will be ignored.");
-        }
-
-        if (!undefinedCategories.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "One or more specified categories do not exist: " + StringUtils.join(undefinedCategories, ", "));
-        }
-
-        return unique;
-    }
 
     @Override
     public boolean start() throws Exception {
@@ -77,14 +46,24 @@ public class ThrottleStepExecution extends StepExecution {
         if (r != null && flowNode != null) {
             runId = r.getExternalizableId();
             flowNodeId = flowNode.getId();
-            for (String category : validateCategories(descriptor, listener)) {
-                descriptor.addThrottledPipelineForCategory(runId, flowNodeId, category, listener);
+            List<String> nonexistent = new ArrayList<String>();
+            for (String key : getUtilizations().keySet()) {
+                if (descriptor.getCategoryByName(key) == null) {
+                    nonexistent.add(key);
+            }
+        }
+            if (nonexistent.isEmpty()) {
+                for (Map.Entry<String, Float> kv : getUtilizations().entrySet()) {
+                    descriptor.addThrottledPipelineForCategoryDeferred(runId, new hudson.plugins.throttleconcurrents.FlowEntry(flowNodeId, kv.getKey(), ThrottleJobProperty.toFloat(kv.getValue())), listener);
+                }
+            } else {
+                throw new IllegalArgumentException("One or more specified categories do not exist: " + StringUtils.join(nonexistent, ", "));
             }
         }
 
         getContext()
                 .newBodyInvoker()
-                .withCallback(new Callback(runId, flowNodeId, getCategories()))
+                .withCallback(new Callback(runId, flowNodeId, getUtilizations()))
                 .start();
         return false;
     }
@@ -98,26 +77,28 @@ public class ThrottleStepExecution extends StepExecution {
 
         @CheckForNull
         private String flowNodeId;
-
-        private List<String> categories = new ArrayList<>();
+        private Map<String, Float> categories = new HashMap<>();
 
         private static final long serialVersionUID = 1;
 
-        Callback(@CheckForNull String runId, @CheckForNull String flowNodeId, @NonNull List<String> categories) {
+        Callback(@CheckForNull String runId, @CheckForNull String flowNodeId, @NonNull Map<String, Float> categories) {
             this.runId = runId;
             this.flowNodeId = flowNodeId;
-            this.categories.addAll(categories);
+            this.categories.putAll(categories);
         }
 
         @Override
         protected void finished(StepContext context) throws Exception {
             if (runId != null && flowNodeId != null) {
-                for (String category : categories) {
-                    ThrottleJobProperty.fetchDescriptor()
-                            .removeThrottledPipelineForCategory(
-                                    runId, flowNodeId, category, context.get(TaskListener.class));
+                ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
+                for (String category : categories.keySet()) {
+                    descriptor.removeThrottledPipelineForCategoryDeferred(runId,
+                            flowNodeId,
+                            category,
+                            context.get(TaskListener.class));
                 }
             }
         }
     }
+    private static final Logger LOGGER = Logger.getLogger(ThrottleStepExecution.class.getName());
 }

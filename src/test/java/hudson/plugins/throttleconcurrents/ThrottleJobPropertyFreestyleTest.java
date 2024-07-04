@@ -49,21 +49,17 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.rules.TemporaryFolder;
-import org.jvnet.hudson.test.BuildWatcher;
-import org.jvnet.hudson.test.Issue;
-import org.jvnet.hudson.test.JenkinsRule;
-import org.jvnet.hudson.test.SequenceLock;
-import org.jvnet.hudson.test.TestBuilder;
+import org.jvnet.hudson.test.*;
+
+import java.util.logging.Level;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /** Tests that {@link ThrottleJobProperty} actually works for builds. */
 public class ThrottleJobPropertyFreestyleTest {
-
+    @Rule public LoggerRule l = new LoggerRule();
     @Rule
     public JenkinsRule j = new JenkinsRule();
 
@@ -84,6 +80,11 @@ public class ThrottleJobPropertyFreestyleTest {
         j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
         GlobalMatrixAuthorizationStrategy auth = new GlobalMatrixAuthorizationStrategy();
         j.jenkins.setAuthorizationStrategy(auth);
+    }
+
+    @Before
+    public void setupLogging() {
+        l.capture(1000).record("hudson.plugins.throttleconcurrents.ThrottleQueueTaskDispatcher", Level.ALL);
     }
 
     /** Clean up agents. */
@@ -131,51 +132,65 @@ public class ThrottleJobPropertyFreestyleTest {
 
         FreeStyleProject firstJob = j.createFreeStyleProject();
         firstJob.setAssignedNode(agent);
-        firstJob.addProperty(new ThrottleJobProperty(
-                null, // maxConcurrentPerNode
-                null, // maxConcurrentTotal
-                Collections.singletonList(TestUtil.ONE_PER_NODE.getCategoryName()),
-                true, // throttleEnabled
-                TestUtil.THROTTLE_OPTION_CATEGORY, // throttleOption
-                false,
-                null,
-                ThrottleMatrixProjectOptions.DEFAULT));
+        firstJob.addProperty(
+                new ThrottleJobProperty(null, null, Collections.singletonList(TestUtil.ONE_PER_NODE.getCategoryName()), true, TestUtil.THROTTLE_OPTION_CATEGORY, false, null, ThrottleMatrixProjectOptions.DEFAULT));
+        firstJob.setConcurrentBuild(true);
+
         SequenceLock firstJobSeq = new SequenceLock();
-        firstJob.getBuildersList().add(new SequenceLockBuilder(firstJobSeq));
+        SequenceLock firstJobSeq2 = new SequenceLock();
+        firstJob.getBuildersList().add(new SequenceLockBuilder(firstJobSeq, firstJobSeq2));
 
         FreeStyleBuild firstJobFirstRun = firstJob.scheduleBuild2(0).waitForStart();
+
+        QueueTaskFuture<FreeStyleBuild> firstJobSecondRunFuture = firstJob.scheduleBuild2(0);
         firstJobSeq.phase(1);
 
         FreeStyleProject secondJob = j.createFreeStyleProject();
         secondJob.setAssignedNode(agent);
-        secondJob.addProperty(new ThrottleJobProperty(
-                null, // maxConcurrentPerNode
-                null, // maxConcurrentTotal
-                Collections.singletonList(TestUtil.ONE_PER_NODE.getCategoryName()),
-                true, // throttleEnabled
-                TestUtil.THROTTLE_OPTION_CATEGORY, // throttleOption
-                false,
-                null,
-                ThrottleMatrixProjectOptions.DEFAULT));
+        secondJob.addProperty(
+                new ThrottleJobProperty(null, null, Collections.singletonList(TestUtil.ONE_PER_NODE.getCategoryName()), true, TestUtil.THROTTLE_OPTION_CATEGORY, false, null, ThrottleMatrixProjectOptions.DEFAULT));
+        secondJob.setConcurrentBuild(true);
         SequenceLock secondJobSeq = new SequenceLock();
         secondJob.getBuildersList().add(new SequenceLockBuilder(secondJobSeq));
 
+        assertEquals(1, agent.toComputer().countBusy());
         QueueTaskFuture<FreeStyleBuild> secondJobFirstRunFuture = secondJob.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
         List<Queue.Item> queuedItemList =
                 Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
-        assertEquals(1, queuedItemList.size());
+        assertEquals(2, queuedItemList.size());
+        assertEquals(1, agent.toComputer().countBusy());
+
         Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
+
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1)
-                        .toString()));
-        assertEquals(1, agent.toComputer().countBusy());
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
+
+        queuedItem = queuedItemList.get(1);
+        blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
+
+        assertThat(
+                blockageReasons,
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
 
         firstJobSeq.done();
         j.assertBuildStatusSuccess(j.waitForCompletion(firstJobFirstRun));
+        assertEquals(1, agent.toComputer().countBusy());
+        //j.jenkins.getQueue().maintain();
+
+
+        FreeStyleBuild firstJobSecondRun = firstJobSecondRunFuture.waitForStart();
+        firstJobSeq2.phase(1);
+        assertEquals(1, agent.toComputer().countBusy());
+
+        firstJobSeq2.done();
+        j.assertBuildStatusSuccess(j.waitForCompletion(firstJobSecondRun));
+        j.jenkins.getQueue().maintain();
+        //assertEquals(1, j.jenkins.getQueue().countBuildableItems());
+        assertEquals(1, agent.toComputer().countBusy());
 
         FreeStyleBuild secondJobFirstRun = secondJobFirstRunFuture.waitForStart();
         secondJobSeq.phase(1);
@@ -250,8 +265,7 @@ public class ThrottleJobPropertyFreestyleTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(2)
-                        .toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityTotal(TestUtil.TWO_TOTAL_UTILIZATION).toString()));
         assertEquals(1, firstAgent.toComputer().countBusy());
 
         assertEquals(1, secondAgent.toComputer().countBusy());
@@ -375,8 +389,7 @@ public class ThrottleJobPropertyFreestyleTest {
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
-                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1)
-                        .toString()));
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(TestUtil.ONE_PER_NODE_UTILIZATION).toString()));
         assertEquals(1, agent.toComputer().countBusy());
 
         seq1.done();

@@ -391,17 +391,17 @@ public class ThrottleJobPropertyTest {
         ThrottleJobProperty.DescriptorImpl descriptor = ThrottleJobProperty.fetchDescriptor();
         assertNotNull(descriptor);
 
-        Map<String, List<String>> throttledPipelinesByCategory =
+        Map<String, Map<String, FlowEntry>> throttledPipelinesByCategory =
                 descriptor.getThrottledPipelinesForCategory(TestUtil.TWO_TOTAL.getCategoryName());
         assertTrue(throttledPipelinesByCategory instanceof CopyOnWriteMap.Tree);
         assertEquals(3, throttledPipelinesByCategory.size());
         assertEquals(
                 new HashSet<>(Arrays.asList("first-job#1", "second-job#1", "third-job#1")),
                 throttledPipelinesByCategory.keySet());
-        for (List<String> flowNodes : throttledPipelinesByCategory.values()) {
-            assertTrue(flowNodes instanceof CopyOnWriteArrayList);
+        for (Map<String, FlowEntry> flowNodes : throttledPipelinesByCategory.values()) {
+            assertTrue(flowNodes instanceof CopyOnWriteMap.Tree);
             assertEquals(1, flowNodes.size());
-            assertEquals("3", flowNodes.get(0));
+            assertEquals("3", flowNodes.keySet().toArray()[0]);
         }
     }
 
@@ -442,7 +442,7 @@ public class ThrottleJobPropertyTest {
         try {
             assertEquals(
                     new HashSet<Queue.Task>(Arrays.asList(projects)),
-                    new HashSet<>(ThrottleJobProperty.getCategoryTasks(category)));
+                    new HashSet<>(ThrottleJobProperty.getCategoryTasks(category, ThrottleJobProperty.fetchDescriptor())));
         } finally {
             // do not check during e.g. rebuildDependencyGraph from delete
             j.jenkins.setAuthorizationStrategy(AuthorizationStrategy.UNSECURED);
@@ -478,6 +478,9 @@ public class ThrottleJobPropertyTest {
     }
 
     private int anyInt() {
+        return random.nextInt(10000);
+    }
+    private float anyFloat() {
         return random.nextInt(10000);
     }
 }
