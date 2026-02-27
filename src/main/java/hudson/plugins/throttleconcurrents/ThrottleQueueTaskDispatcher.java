@@ -175,7 +175,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                         if (LOGGER.isLoggable(Level.FINEST)) {
                             LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Looking at category tasks: " + categoryTasks.stream().map(Object::toString).collect(Collectors.joining(", ")));
                         }
-                            for (Task catTask : categoryTasks) {
+                        for (Task catTask : categoryTasks) {
                             /*if (catTask.equals(task.getOwnerTask()) && (task.getOwnerTask() != task)) {
                                 LOGGER.log(Level.FINEST, task.getFullDisplayName() + ": Skipping parent category task: " + catTask);
                                 continue;
@@ -248,7 +248,7 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     }
 
     private void computeCurrentUtilization2(Task pendingTask, List<FlowNode> pipelines, Map<String, Float> runCount, Run<?,?> r, ThrottleJobProperty.DescriptorImpl descriptor) {
-                                    if (r.isBuilding()) {
+        if (r.isBuilding()) {
             //LOGGER.log(Level.INFO, pendingTask.getDisplayName() + ": isBuilding == true");
             if (pipelines != null && pipelines.size() != 0) {
                 ThrottleJobProperty tjp = getThrottleJobProperty(pendingTask);
@@ -256,15 +256,15 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                     Map<String, Float> cats = new HashMap<>();
                     if (tjp != null && tjp.getThrottleEnabled() && tjp.getThrottleOption().equals("category")) {
                         cats = tjp.getUtilizations();
-                                    }
+                    }
                     cats = overrideUtilizations(cats, categoriesForPipeline(r, fn, descriptor));
                     for (Map.Entry<String, Float> kv : cats.entrySet()) {
                         runCount.put(kv.getKey(), kv.getValue() + runCount.getOrDefault(kv.getKey(), 0.0f));
-                                }
-                            }
-                            }
-                        }
                     }
+                }
+            }
+        }
+    }
 
     private void computeCurrentUtilization(Task pendingTask, Map<String, Float> runCount, Task runningTask, int multiplier, ThrottleJobProperty.DescriptorImpl descriptor) {
         Map<String, Float> pipeCats = categoriesForPipeline(runningTask, descriptor);
